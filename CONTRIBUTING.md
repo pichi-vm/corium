@@ -31,18 +31,16 @@ cargo +stable test --locked --test boot -- --ignored --test-threads=1
 The `VM boot validation` workflow runs automatically on pull requests and
 pushes, alongside hosted CI. Require its `boot` job to pass before merging;
 the workflow uploads console logs and pass/optional-case omission summaries.
-If no suitable runner is available, the job remains queued rather than
-skipping boot validation. Do not merge on hosted CI alone.
+Require both ordinary CI and boot validation before merging.
 The suite exercises the real Carapace missing-partition diagnostic, including
 its string-matched retry adapter, so dependency updates must pass it too.
 
-The workflow requires a dedicated runner labelled `corium-boot`. Use isolated,
-ephemeral runners for PR code, with no secrets or access to trusted workloads.
-Provision them with unprivileged KVM access, a
-readable Linux 7.0+ kernel and matching modules/config under /boot, at least 8 GiB free storage, stable Rust with
-the x86_64 musl target, and the tools listed in README. The workflow's existence
-does not imply a runner has been provisioned. Manual dispatch remains available
-for reruns; it is not required for normal PR validation.
+The workflow uses GitHub-hosted `ubuntu-26.04` runners and their Linux 7.0+
+kernel, matching modules and configuration. Setup installs image-building
+tools and stable Rust's x86_64 musl target, grants the runner user KVM access,
+and makes the guest kernel readable. The test suite itself runs without root.
+No self-hosted runner is needed. Manual dispatch remains available for reruns;
+it is not required for normal PR validation.
 
 Hosted CI tests stable and Rust 1.89 and builds the x86_64 and ARM64 musl
 binaries. Non-Linux library builds are compatibility stubs; they do not run

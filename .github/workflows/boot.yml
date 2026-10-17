@@ -10,12 +10,23 @@ permissions:
 
 jobs:
   boot:
-    runs-on: [self-hosted, linux, x64, corium-boot]
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install VM test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            qemu-system-x86 cryptsetup-bin fdisk e2fsprogs cpio kmod \
+            squashfs-tools xz-utils gzip zstd
+          sudo chown "$(id -u):$(id -g)" /dev/kvm
+          sudo chmod a+r "/boot/vmlinuz-$(uname -r)"
       - run: cargo +stable test --locked --test boot -- --ignored --test-threads=1
       - uses: actions/upload-artifact@v4
         if: always()
