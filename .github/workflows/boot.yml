@@ -1,0 +1,31 @@
+name: VM boot validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    runs-on: [self-hosted, linux, x64, corium-boot]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: cargo +stable test --locked --test boot -- --ignored --test-threads=1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: boot-logs
+          path: |
+            target/boot-tests-*/*.log
+            target/boot-tests-*/*.json
+            target/boot-tests-*/*.jsonl
+            target/boot-tests-*/*.txt
+            target/boot-tests-*/*.diff
+            target/boot-tests-*/*/fixture.json
+            target/boot-tests-*/*/guest-inputs.json

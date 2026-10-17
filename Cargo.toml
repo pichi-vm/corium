@@ -1,22 +1,20 @@
 [package]
 name = "corium"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+rust-version = "1.89"
 license = "Apache-2.0"
 repository = "https://github.com/pichi-vm/corium"
 publish = false
-description = "The pichi guest agent: mounts the root carapace in the initramfs and pivots."
+description = "Minimal initramfs init: mount a read-only Carapace root and execute /sbin/init."
 
-# corium runs as the initramfs `/init` (PID 1) and is validated by real boots
-# (the vm-tests boot suite), so its `fn main` has no unit-test harness.
+# The library holds the testable boot logic; the binary is the PID 1 entry point.
 [[bin]]
 name = "corium"
 path = "src/main.rs"
 test = false
 
 [lib]
-# Tiny library half: cmdline parsing and root-hash decoding (unit-tested) + console
-# sentinels host-side boot tests match on.
 
 # corium is the Linux guest `/init` — its whole library is
 # `#![cfg(target_os = "linux")]`. Gate the syscall/carapace deps to Linux too,
@@ -24,15 +22,22 @@ test = false
 # macOS) don't compile the Linux dm + ioctl stack (carapace → devmap-linux →
 # iocuddle) they never use.
 [target.'cfg(target_os = "linux")'.dependencies]
+log = { version = "0.4", features = ["std", "kv"] }
 # Read-side carapace discovery and assembly from its trusted root.
-carapace = { git = "https://github.com/pichi-vm/carapace", rev = "377f9408e471780b48d37ac0c3ae4c4ec65ad843" }
-# rustix's safe syscall wrappers (linux_raw backend → no libc, no unsafe in
-# our code). Feature set is the union of the monorepo workspace base
-# (std, fs, process) and corium's own (mount, system, process, stdio).
+carapace = { git = "https://github.com/pichi-vm/carapace", rev = "4662818553b532a9fd190cf22f41335610018efc" }
+# Safe Linux syscall wrappers, including pivot_root and console fd setup.
 rustix = { version = "1", default-features = false, features = ["std", "fs", "process", "mount", "system", "stdio"] }
 
+# Keep the initramfs binary small using stable Cargo settings.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
 [lints.rust]
-unsafe_code = "deny"
+unsafe_code = "forbid"
 missing_debug_implementations = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 unreachable_pub = "warn"
@@ -55,3 +60,8 @@ too_many_lines = "allow"
 missing_panics_doc = "allow"
 needless_pass_by_value = "allow"
 uninlined_format_args = "allow"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
