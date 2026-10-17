@@ -14,6 +14,7 @@
 use std::fs;
 use std::path::Path;
 
+use carapace::{Assemble, Chain, DevId, FromGpt};
 use corium::{CORIUM_PIVOT, CORIUM_ROOT_OK};
 use rustix::mount::{MountFlags, mount};
 
@@ -41,18 +42,23 @@ fn boot() -> Result<(), String> {
         .ok_or("no root.carapace=<root> on the kernel cmdline")?;
     eprintln!("corium: root carapace {root}");
 
-    let dev = carapace::attach("root", root)
+    let root_bytes =
+        corium::decode_root_carapace(root).map_err(|e| format!("invalid root.carapace: {e}"))?;
+    let device = Chain::from_gpt(&root_bytes)
+        .and_then(|chain| chain.assemble())
         .map_err(|e| format!("assembling root carapace ({root}): {e}"))?;
+    let id = device
+        .metadata()
+        .and_then(DevId::try_from)
+        .map_err(|e| format!("identify root carapace device: {e}"))?;
+    let dev = format!("/dev/dm-{}", id.minor());
 
     let _ = fs::create_dir(SYSROOT);
-    mount(
-        dev.to_str().unwrap_or_default(),
-        SYSROOT,
-        ROOTFS_TYPE,
-        MountFlags::RDONLY,
-        None,
-    )
-    .map_err(|e| format!("mount root carapace {} -> {SYSROOT}: {e}", dev.display()))?;
+    mount(dev.as_str(), SYSROOT, ROOTFS_TYPE, MountFlags::RDONLY, None)
+        .map_err(|e| format!("mount root carapace {dev} -> {SYSROOT}: {e}"))?;
+    // Assembly schedules deferred removal. Keep the file open until the
+    // successful mount retains the stack, then release our own holder.
+    drop(device);
 
     // Proof the carapace mounted: list its root and echo it on the console.
     let entries = list_dir(SYSROOT);

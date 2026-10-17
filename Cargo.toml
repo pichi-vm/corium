@@ -15,17 +15,17 @@ path = "src/main.rs"
 test = false
 
 [lib]
-# Tiny library half: the cmdline-parse helper (unit-tested) + the console
+# Tiny library half: cmdline parsing and root-hash decoding (unit-tested) + console
 # sentinels host-side boot tests match on.
 
 # corium is the Linux guest `/init` — its whole library is
 # `#![cfg(target_os = "linux")]`. Gate the syscall/carapace deps to Linux too,
 # so cross-platform consumers (the `pichi` CLI's vm-tests build on Windows /
-# macOS) don't compile the Linux dm + ioctl stack (carapace → carapace-dm →
+# macOS) don't compile the Linux dm + ioctl stack (carapace → devmap-linux →
 # iocuddle) they never use.
 [target.'cfg(target_os = "linux")'.dependencies]
-# Read-side carapace assembly: attach the root carapace from its trusted root.
-carapace = { git = "https://github.com/pichi-vm/carapace" }
+# Read-side carapace discovery and assembly from its trusted root.
+carapace = { git = "https://github.com/pichi-vm/carapace", rev = "377f9408e471780b48d37ac0c3ae4c4ec65ad843" }
 # rustix's safe syscall wrappers (linux_raw backend → no libc, no unsafe in
 # our code). Feature set is the union of the monorepo workspace base
 # (std, fs, process) and corium's own (mount, system, process, stdio).
