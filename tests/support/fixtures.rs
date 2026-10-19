@@ -212,7 +212,7 @@ pub(crate) struct Disk {
     pub(crate) offsets: Vec<(u64, u64)>,
 }
 
-// Format authority: carapace rev 4662818553b532a9fd190cf22f41335610018efc,
+// Format authority: carapace rev 99caf7941ac8930a5761f6f843b6d8e53dd89587,
 // docs/spec.md (4096-byte chunks, SHA-256 salt-prefix parent linkage).
 // Independent writer for the kernel's persistent dm-snapshot format: one
 // header chunk followed by metadata areas of 256 little-endian exceptions.

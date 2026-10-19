@@ -20,13 +20,12 @@ dependencies = [
 [[package]]
 name = "carapace"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/carapace?rev=4662818553b532a9fd190cf22f41335610018efc#4662818553b532a9fd190cf22f41335610018efc"
+source = "git+https://github.com/pichi-vm/carapace?rev=99caf7941ac8930a5761f6f843b6d8e53dd89587#99caf7941ac8930a5761f6f843b6d8e53dd89587"
 dependencies = [
  "devmap-core",
  "devmap-linux",
  "devmap-snapshot",
  "devmap-verity",
- "zerocopy",
 ]
 
 [[package]]
@@ -69,7 +68,7 @@ dependencies = [
 [[package]]
 name = "devmap-core"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72#6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
 dependencies = [
  "iocuddle",
 ]
@@ -77,7 +76,7 @@ dependencies = [
 [[package]]
 name = "devmap-linux"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72#6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
 dependencies = [
  "devmap-core",
  "iocuddle",
@@ -87,7 +86,7 @@ dependencies = [
 [[package]]
 name = "devmap-snapshot"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72#6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
 dependencies = [
  "devmap-core",
  "devmap-linux",
@@ -96,7 +95,7 @@ dependencies = [
 [[package]]
 name = "devmap-verity"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72#6ebfb76008fc3d5e2c933a2ff4697827f5f9fd72"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
 dependencies = [
  "devmap-core",
  "devmap-linux",

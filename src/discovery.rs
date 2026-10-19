@@ -35,7 +35,7 @@ fn retry<T>(mut discover: impl FnMut() -> io::Result<T>, timeout: Duration) -> i
     }
 }
 
-/// Carapace 4662818 wraps missing partitions as InvalidData and discards the
+/// Carapace 99caf79 wraps missing partitions as InvalidData and discards the
 /// underlying NotFound error. Match only that pinned API's discovery diagnostic;
 /// every other InvalidData error (including verity validation) is fatal.
 fn missing_partition(error: &io::Error) -> bool {
