@@ -67,20 +67,21 @@ awk '
 printf '\n[net]\noffline = true\n' >> .cargo/config.toml
 
 %build
+# Use -- to pass Cargo flags through the RPM macros.
 export CARGO_NET_OFFLINE=true
-%cargo_build --locked
+%cargo_build -- --locked
 %{cargo_license_summary}
 %{cargo_license} > LICENSE.dependencies
 %{cargo_vendor_manifest}
 
 %install
 export CARGO_NET_OFFLINE=true
-%cargo_install --locked
+%cargo_install -- --locked
 
 %if %{with check}
 %check
 export CARGO_NET_OFFLINE=true
-%cargo_test --locked
+%cargo_test -- --locked
 %endif
 
 %changelog
