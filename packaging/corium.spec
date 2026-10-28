@@ -64,7 +64,8 @@ awk '
   skip { next }
   { print }
 ' cargo-vendor-config.toml >> .cargo/config.toml
-printf '\n[net]\noffline = true\n' >> .cargo/config.toml
+# Fedora cargo-rpm-macros may already set [net] offline.
+grep -q '^offline' .cargo/config.toml || printf '\n[net]\noffline = true\n' >> .cargo/config.toml
 
 %build
 # Use -- to pass Cargo flags through the RPM macros.
