@@ -37,6 +37,23 @@ BuildRequires:  rust-toolset
 BuildRequires:  cargo-rpm-macros >= 26
 %endif
 
+# Crates linked into the binary, excluding this source tree.
+# Regenerate from:
+#   cargo tree -p corium --edges no-build,no-dev,no-proc-macro \
+#     --prefix none --format '{p}' --locked
+# Use clean versions: EL's cargo-vendor.txt generator rejects Git URLs.
+Provides:       bundled(crate(bitflags)) = 2.13.2
+Provides:       bundled(crate(carapace)) = 0.1.0
+Provides:       bundled(crate(devmap-core)) = 0.1.0
+Provides:       bundled(crate(devmap-linux)) = 0.1.0
+Provides:       bundled(crate(devmap-snapshot)) = 0.1.0
+Provides:       bundled(crate(devmap-verity)) = 0.1.0
+Provides:       bundled(crate(iocuddle)) = 0.4.0
+Provides:       bundled(crate(linux-raw-sys)) = 0.12.1
+Provides:       bundled(crate(log)) = 0.4.34
+Provides:       bundled(crate(rustix)) = 1.1.5
+Provides:       bundled(crate(zerocopy)) = 0.8.63
+
 %global _description %{expand:
 Minimal initramfs init: mount a read-only Carapace root and execute
 /sbin/init.}
@@ -46,7 +63,6 @@ Minimal initramfs init: mount a read-only Carapace root and execute
 %files
 %license LICENSE
 %license LICENSE.dependencies
-%license cargo-vendor.txt
 %doc CONTRIBUTING.md
 %doc README.md
 %{_bindir}/%{crate}
@@ -73,7 +89,6 @@ export CARGO_NET_OFFLINE=true
 %cargo_build -- --locked
 %{cargo_license_summary}
 %{cargo_license} > LICENSE.dependencies
-%{cargo_vendor_manifest}
 
 %install
 export CARGO_NET_OFFLINE=true
