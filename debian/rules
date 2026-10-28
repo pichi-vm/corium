@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+export CARGO_NET_OFFLINE = true
+export CARGO_TARGET_DIR = $(CURDIR)/target
+
+%:
+	dh $@ --buildsystem=none
+
+override_dh_auto_build:
+	test -d vendor && test -f .cargo/config.toml
+	cargo build --offline --locked --release --bin corium
+
+# VM tests need QEMU; the non-PID-1 test refuses root.
+override_dh_auto_test:
+
+override_dh_auto_install:
+	install -Dm755 target/release/corium debian/corium/usr/bin/corium
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo-home
+
+# Cargo checksums include vendored Cargo.toml.orig files.
+override_dh_clean:
+	dh_clean -Xvendor/
