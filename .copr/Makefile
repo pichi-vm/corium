@@ -1,11 +1,22 @@
-# Copr "make srpm" entry point. Source0 is this checkout. Source1 is a
-# vendor tarball built here, not stored in git. cargo vendor's stdout (the
-# source map, including git crates) is shipped in that tarball.
+# Copr make_srpm entry point. Copr cds into the clone and runs
+# `make -f .copr/Makefile srpm` with spec= and outdir=.
+#
+# make_srpm has no chroot package list in the Copr UI, so this
+# target installs what it needs with dnf (cargo, rust, rpm-build,
+# tar, xz, gzip). Do not require git: Copr already provides the
+# tree as cwd. Override DNF (e.g. DNF=true) when the host already
+# has those tools, such as GitHub Actions with apt + rustup.
+#
+# Source0 is this checkout. Source1 is a vendor tarball built here,
+# not stored in git. cargo vendor's stdout (the source map,
+# including git crates) is shipped in that tarball.
 SHELL := /bin/bash
+DNF ?= dnf
 
 srpm:
+	$(DNF) -y install cargo rust rpm-build tar xz gzip
 	set -euo pipefail; \
-	root=$$(git rev-parse --show-toplevel); \
+	root=$$(pwd); \
 	workdir=$$(mktemp -d); \
 	payload=$$(mktemp -d); \
 	cleanup() { rm -rf "$$workdir" "$$payload" "$$root/vendor"; }; \
@@ -20,9 +31,6 @@ srpm:
 		--exclude .cargo \
 		--transform "s,^\./,$$name-$$version/," \
 		.; \
-	if ! command -v cargo >/dev/null 2>&1; then \
-		dnf -y install cargo; \
-	fi; \
 	( cd "$$root" && cargo vendor --locked --versioned-dirs vendor > "$$workdir/cargo-vendor-config.toml" ); \
 	mv "$$root/vendor" "$$payload/vendor"; \
 	cp "$$workdir/cargo-vendor-config.toml" "$$payload/cargo-vendor-config.toml"; \
