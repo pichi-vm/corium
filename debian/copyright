@@ -9,12 +9,12 @@ found on Debian systems in /usr/share/common-licenses/Apache-2.0.
 
 Bundled Rust crates
 ------------------
-The generated orig tarball contains the crates pinned by Cargo.lock,
+The committed vendor directory contains the crates pinned by Cargo.lock,
 including Carapace and Devmap from their pinned Git revisions. These
 retain their upstream copyrights and licenses. LICENSE.dependencies
 records each crate's name, version, declared license and authors, together
 with the license and notice files supplied by that crate. It is generated
-by debian/make-orig-source.py and installed alongside this file.
+from the vendor directory and installed alongside this file.
 
 The linked runtime crates use Apache-2.0, MIT, and their declared alternative
 licenses (including Apache-2.0 with LLVM exception and BSD-2-Clause).
