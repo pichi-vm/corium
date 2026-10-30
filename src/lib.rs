@@ -8,7 +8,7 @@
 #![cfg(target_os = "linux")]
 
 mod boot;
-mod cmdline;
+mod bootconfig;
 mod discovery;
 mod logging;
 mod modules;

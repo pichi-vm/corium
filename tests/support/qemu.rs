@@ -90,8 +90,37 @@ impl Harness {
         name: &str,
         initrd: &Path,
         disk: Option<&Path>,
+        config: &str,
+    ) -> Boot {
+        self.boot_with_args(name, initrd, disk, config, "")
+    }
+
+    pub(crate) fn boot_with_args(
+        &self,
+        name: &str,
+        initrd: &Path,
+        disk: Option<&Path>,
+        config: &str,
         options: &str,
     ) -> Boot {
+        let mut bytes = fs::read(initrd).unwrap();
+        if !config.is_empty() {
+            bytes.resize(bytes.len().next_multiple_of(4), 0);
+            let mut data = config.as_bytes().to_vec();
+            data.push(0);
+            data.resize(data.len().next_multiple_of(4), 0);
+            let size = u32::try_from(data.len()).unwrap();
+            let checksum = data
+                .iter()
+                .fold(0u32, |sum, b| sum.wrapping_add(u32::from(*b)));
+            bytes.extend(data);
+            bytes.extend(size.to_le_bytes());
+            bytes.extend(checksum.to_le_bytes());
+            bytes.extend(b"#BOOTCONFIG\n");
+        }
+        let archive = self.work.join(format!("{name}.initrd"));
+        fs::write(&archive, bytes).unwrap();
+        fs::write(self.work.join(format!("{name}.bootconfig")), config).unwrap();
         let socket_dir = tempfile::Builder::new()
             .prefix("corium-qmp-")
             .tempdir()
@@ -125,10 +154,10 @@ impl Harness {
             ])
             .arg(&self.kernel)
             .arg("-initrd")
-            .arg(initrd)
+            .arg(archive)
             .arg("-append")
             .arg(format!(
-                "console=ttyS0 quiet panic=-1 systemd.show_status=false {options}"
+                "console=ttyS0 quiet panic=-1 systemd.show_status=false bootconfig {options}"
             ))
             .arg("-qmp")
             .arg(format!("unix:{}", address.display()))

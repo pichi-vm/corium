@@ -21,7 +21,7 @@ fn mounted_root_can_be_a_snapshot_origin() {
         "shared-root",
         &initrd,
         Some(&disk.path),
-        &format!("corium={}", disk.root),
+        &format!("corium.root={}", disk.root),
     );
     boot.expect(READY);
     assert!(boot.output.contains("CORIUM-SHARED-ROOT-OK"));
@@ -40,20 +40,21 @@ fn boot_contract() {
     let root = f::root(h, "small-root");
     let disk = f::base(h, &root, "small", false);
     let initrd = f::initramfs(h, "plain", false, false, "none");
-    let cmd = format!("corium={}", disk.root);
+    let config = format!("corium.root={}", disk.root);
     let run = |name: &str, options: &str, expected: &str| {
         let boot = h.boot(name, &initrd, Some(&disk.path), options);
         boot.expect(expected);
         h.outcome(name, "PASS", "");
         boot.output
     };
-    let output = run("systemd-handoff", &cmd, READY);
+    let output = run("systemd-handoff", &config, READY);
     assert!(!output.contains("corium:"));
-    let panic = h.boot(
+    let panic = h.boot_with_args(
         "panic-negative-control",
         &initrd,
         None,
-        "rdinit=/nonexistent corium.log=off",
+        "corium.log=off",
+        "rdinit=/nonexistent",
     );
     assert!(panic.output.contains("Kernel panic"));
     assert!(
@@ -66,7 +67,7 @@ fn boot_contract() {
     for (index, phase) in PHASES.iter().enumerate() {
         let output = run(
             &format!("halt-{phase}"),
-            &format!("{cmd} corium.log=info corium.halt={phase}"),
+            &format!("{config}; corium.log=info; corium.halt={phase}"),
             &format!("message=\"shutdown requested\" phase=\"{phase}\""),
         );
         timings(&output, index + 1);
@@ -77,7 +78,7 @@ fn boot_contract() {
     for level in ["info", "debug", "trace"] {
         let output = run(
             &format!("logging-{level}"),
-            &format!("{cmd} corium.log={level}"),
+            &format!("{config}; corium.log={level}"),
             READY,
         );
         timings(&output, 6);
@@ -85,19 +86,19 @@ fn boot_contract() {
         assert_eq!(output.contains("TRACE corium"), level == "trace");
     }
     for (name, options) in [
-        ("off-fatal", "corium.log=off corium=invalid".into()),
+        ("off-fatal", "corium.log=off; corium.root=invalid".into()),
         (
             "off-halt-invalid",
-            format!("{cmd} corium.halt=bad corium.log=off"),
+            format!("{config}; corium.halt=bad; corium.log=off"),
         ),
-        ("silent-halt", format!("{cmd} corium.halt=started")),
+        ("silent-halt", format!("{config}; corium.halt=started")),
         (
             "off-halt",
-            format!("{cmd} corium.halt=started corium.log=off"),
+            format!("{config}; corium.halt=started; corium.log=off"),
         ),
         (
             "warn-halt",
-            format!("{cmd} corium.halt=started corium.log=warn"),
+            format!("{config}; corium.halt=started; corium.log=warn"),
         ),
     ] {
         let output = run(name, &options, "");
@@ -110,46 +111,82 @@ fn boot_contract() {
             "invalid corium.log value",
         ),
         (
-            "duplicate-log",
-            "corium.log=off corium.log=info".into(),
-            "duplicate corium.log arguments",
+            "array-log",
+            "corium.log=off,info".into(),
+            "corium.log requires one value",
         ),
         (
             "invalid-halt",
-            format!("{cmd} corium.halt=bad"),
+            format!("{config}; corium.halt=bad"),
             "invalid corium.halt value",
         ),
         (
-            "duplicate-halt",
-            format!("{cmd} corium.halt=started corium.halt=modules"),
-            "duplicate corium.halt arguments",
+            "array-halt",
+            format!("{config}; corium.halt=started,modules"),
+            "corium.halt requires one value",
         ),
         (
             "failure-before-halt",
-            "corium=invalid corium.log=info corium.halt=started".into(),
-            "corium must be nonempty",
+            "corium.root=invalid; corium.log=info; corium.halt=started".into(),
+            "corium.root must be nonempty",
         ),
         (
-            "duplicate",
-            format!("{cmd} {cmd}"),
-            "duplicate corium arguments",
+            "array-root",
+            format!("{config},{}", disk.root),
+            "corium.root requires one value",
         ),
-        (
-            "missing-argument",
-            String::new(),
-            "missing corium=<root-hash>",
-        ),
+        ("missing-root", String::new(), "missing corium.root"),
         (
             "malformed",
-            format!("corium=0x{}", disk.root),
-            "corium must be nonempty",
+            format!("corium.root=0x{}", disk.root),
+            "corium.root must be nonempty",
+        ),
+        (
+            "unknown-key",
+            format!("{config}; corium.rooot=ab"),
+            "unknown bootconfig key: corium.rooot",
+        ),
+        (
+            "root-subkey",
+            format!("{config}; corium.root.extra=ab"),
+            "unknown bootconfig key: corium.root.extra",
+        ),
+        (
+            "malformed-document",
+            "corium { root =".into(),
+            "missing corium.root",
         ),
     ] {
         let output = run(name, &options, expected);
         assert!(output.contains("ERROR corium: message=\"boot failed\""));
         assert!(!output.contains("message=\"shutdown requested\""));
     }
-    h.boot("discovery-timeout", &initrd, None, &cmd)
+    let native = format!(
+        "corium {{ root=00; log=off; }}\ncorium.root := {};\ncorium.log := info;\n\
+         example = 'first line\ncorium.root = \"ff\"\nlast line';\nexample += more;\n\
+         kernel.panic = -1;",
+        disk.root,
+    );
+    let output = run("native-bootconfig", &native, READY);
+    timings(&output, 6);
+    h.boot_with_args(
+        "bootconfig-required",
+        &initrd,
+        Some(&disk.path),
+        "",
+        &format!("corium={}", disk.root),
+    )
+    .expect("missing corium.root");
+    h.outcome("bootconfig-required", "PASS", "");
+    h.boot(
+        "incorrect-root",
+        &initrd,
+        Some(&disk.path),
+        &format!("corium.root={}", "ff".repeat(32)),
+    )
+    .expect("waiting for root partitions");
+    h.outcome("incorrect-root", "PASS", "");
+    h.boot("discovery-timeout", &initrd, None, &config)
         .expect("waiting for root partitions");
     h.outcome("discovery-timeout", "PASS", "");
     for (name, empty, bad, expected) in [
@@ -161,7 +198,7 @@ fn boot_contract() {
             name,
             &archive,
             if empty { None } else { Some(&disk.path) },
-            &cmd,
+            &config,
         )
         .expect(expected);
         h.outcome(name, "PASS", "");
@@ -185,7 +222,7 @@ fn boot_contract() {
             continue;
         }
         let archive = f::initramfs(h, &name, false, false, compression);
-        h.boot(&name, &archive, Some(&disk.path), &cmd)
+        h.boot(&name, &archive, Some(&disk.path), &config)
             .expect(READY);
         h.outcome(&name, "PASS", "");
     }
@@ -208,7 +245,7 @@ fn boot_contract() {
         let mut file = OpenOptions::new().write(true).open(&path).unwrap();
         file.seek(SeekFrom::Start(offset)).unwrap();
         file.write_all(bytes).unwrap();
-        let result = h.boot(name, &initrd, Some(&path), &cmd);
+        let result = h.boot(name, &initrd, Some(&path), &config);
         result.expect(expected);
         assert!(!result.output.contains("waiting for root partitions"));
         h.outcome(name, "PASS", "");
@@ -219,7 +256,7 @@ fn boot_contract() {
             "squashfs-handoff",
             &initrd,
             Some(&squash.path),
-            &format!("corium={}", squash.root),
+            &format!("corium.root={}", squash.root),
         )
         .expect(READY);
         h.outcome("squashfs-handoff", "PASS", "");
@@ -236,7 +273,7 @@ fn boot_contract() {
         "exec-failure",
         &initrd,
         Some(&missing.path),
-        &format!("corium={}", missing.root),
+        &format!("corium.root={}", missing.root),
     )
     .expect("exec /sbin/init:");
     h.outcome("exec-failure", "PASS", "");
@@ -253,7 +290,7 @@ fn layered_roots() {
         "three-scutes",
         &initrd,
         Some(&small.path),
-        &format!("corium={}", small.root),
+        &format!("corium.root={}", small.root),
     )
     .expect(READY);
     h.outcome("three-scutes", "PASS", "");
@@ -262,7 +299,7 @@ fn layered_roots() {
         "missing-parent",
         &initrd,
         Some(&missing.path),
-        &format!("corium={}", missing.root),
+        &format!("corium.root={}", missing.root),
     )
     .expect("waiting for root partitions");
     h.outcome("missing-parent", "PASS", "");
@@ -276,7 +313,7 @@ fn layered_roots() {
         "corrupt-parent",
         &initrd,
         Some(&path),
-        &format!("corium={}", small.root),
+        &format!("corium.root={}", small.root),
     )
     .expect("assemble root:");
     h.outcome("corrupt-parent", "PASS", "");
@@ -293,7 +330,7 @@ fn large_root() {
         "large-handoff",
         &initrd,
         Some(&large.path),
-        &format!("corium={}", large.root),
+        &format!("corium.root={}", large.root),
     );
     result.expect(READY);
     assert!(!result.output.contains("corium:"));

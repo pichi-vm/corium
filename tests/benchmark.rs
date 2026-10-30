@@ -25,7 +25,7 @@ fn large_image_boot() {
             &name,
             &initrd,
             Some(&disk.path),
-            &format!("corium={} corium.log=info", disk.root),
+            &format!("corium.root={}; corium.log=info", disk.root),
         );
         boot.expect(READY);
         let rows = timings(&boot.output, 6);

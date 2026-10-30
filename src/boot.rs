@@ -65,7 +65,7 @@ impl Drop for MountView {
 ///
 /// # Errors
 /// Returns an operator-facing diagnostic on non-PID-1 invocation or failure
-/// during setup, argument validation, module loading, discovery, assembly,
+/// during setup, configuration validation, module loading, discovery, assembly,
 /// mounting, pivoting, or exec. Errors are fatal; callers do not recover by kind.
 pub fn boot() -> Result<(), String> {
     let mut progress = Progress::new();
@@ -85,10 +85,13 @@ pub fn boot() -> Result<(), String> {
     mount_api("proc", "/proc")?;
     mount_api("sysfs", "/sys")?;
 
-    let cmdline = fs::read_to_string("/proc/cmdline").map_err(|e| format!("read cmdline: {e}"))?;
-    log::set_max_level(crate::cmdline::log_level(&cmdline)?);
-    let root = crate::cmdline::root_hash(&cmdline)?;
-    progress.shutdown = crate::cmdline::shutdown(&cmdline)?;
+    let text =
+        fs::read_to_string("/proc/bootconfig").map_err(|e| format!("read bootconfig: {e}"))?;
+    let config = crate::bootconfig::BootConfig::parse(&text)?;
+    log::set_max_level(config.log_level()?);
+    config.check_keys()?;
+    let root = config.root_hash()?;
+    progress.shutdown = config.shutdown()?;
     if progress.complete(Phase::Started) {
         return Ok(());
     }
