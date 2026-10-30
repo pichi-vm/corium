@@ -143,6 +143,16 @@ impl Harness {
         let config_path = PathBuf::from(format!("/boot/config-{release}"));
         let config = fs::read_to_string(&config_path)
             .expect("matching readable kernel configuration required");
+        for option in [
+            "CONFIG_BOOT_CONFIG=y",
+            "CONFIG_BLK_DEV_INITRD=y",
+            "CONFIG_PROC_FS=y",
+        ] {
+            assert!(
+                config.lines().any(|line| line == option),
+                "guest kernel requires {option}"
+            );
+        }
         let mut modules = std::collections::BTreeSet::new();
         let mut names = vec![
             "virtio_pci",

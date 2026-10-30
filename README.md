@@ -7,18 +7,18 @@ init (systemd) owns all subsequent operating-system setup.
 ## Image-builder contract
 
 - Supply Linux **7.0 or newer**, with device-mapper, devtmpfs, procfs, sysfs,
-  and the drivers needed to discover and mount the root. Drivers may be built
-  in or supplied as modules.
+  bootconfig support (`CONFIG_BOOT_CONFIG=y`), and the drivers needed to
+  discover and mount the root. Drivers may be built in or supplied as modules.
 - Install the static Corium binary as `/init` in an initramfs.
 - Put the required modules and their dependencies under
   `/usr/lib/modules/<running-kernel-release>/`, preserving subdirectories.
   Corium loads regular `.ko`, `.ko.xz`, `.ko.gz`, and `.ko.zst` files.
   Compressed files require the matching kernel decompressor. No module index,
   userspace decompressor, udev, shell, or device nodes are needed.
-- Supply exactly one `corium=<root-hash>` kernel command-line argument.
-  The value must be nonempty, even-length hexadecimal, in either case, with
-  no `0x` prefix. Carapace validates the digest length against the chain.
-  The former `root.carapace=` and `carapacehash=` names are not accepted.
+- Activate bootconfig with `bootconfig` on the kernel command line and supply
+  `corium.root` in the bootconfig document. The value is the Carapace tip
+  hash: nonempty, even-length hexadecimal, in either case, with no `0x`
+  prefix. Carapace validates the digest length against the chain.
 - Expose the Carapace's GPT partitions to the guest. The assembled Carapace
   must contain a filesystem directly, without an inner partition table.
 - Include an executable `/sbin/init`, its interpreter/libraries, and the
@@ -29,7 +29,7 @@ init (systemd) owns all subsequent operating-system setup.
 
 1. Mount devtmpfs and reopen the console. Require Linux 7.0+ before mounting
    temporary procfs and sysfs.
-2. Read and validate the Corium command-line arguments.
+2. Read and validate Corium's settings from `/proc/bootconfig`.
 3. Recursively load the running kernel's module set. Already-loaded modules
    count as success. Repeat passes for dependencies; a pass that loads no
    additional module is fatal. An absent or empty module directory is valid.
@@ -61,22 +61,37 @@ The pinned Carapace API currently wraps missing-partition errors as
 other validation errors are not retried. Recheck this adapter when updating
 Carapace.
 
-## Logging and diagnostic shutdown
+## Boot configuration
 
-Two independent, optional kernel command-line arguments control diagnostics:
+Corium consumes the top-level `corium` namespace from `/proc/bootconfig`:
 
-- `corium.log=off|error|warn|info|debug|trace` sets the maximum verbosity.
+```text
+corium {
+    root = "<Carapace tip hash in hexadecimal>";
+    log = error;
+    # halt = assembled;
+}
+```
+
+`corium.root` is required. All Corium settings take one scalar value.
+Unknown keys within `corium` are fatal; other namespaces are ignored.
+Linux parses the document and resolves grouping and assignment operators;
+Corium reads the resulting flattened, quoted key/value records.
+
+Two optional settings control diagnostics:
+
+- `corium.log = off|error|warn|info|debug|trace` sets the maximum verbosity.
   The default is `error`; successful boots are silent. `off` suppresses all
   Corium records, including fatal errors.
-- `corium.halt=started|modules|discovered|assembled|mounted|pivoted`
+- `corium.halt = started|modules|discovered|assembled|mounted|pivoted`
   syncs and powers off after the selected phase completes successfully.
   Without it, Corium executes `/sbin/init`. It does not change the log level.
 
-Values are case-sensitive. Empty, invalid, and duplicate options are fatal.
+Diagnostic values are case-sensitive. Empty values and arrays are fatal.
 Until the log setting can be read and validated, the filter is `error`.
 A valid log setting applies before validation of the root and shutdown
-arguments, regardless of argument order. Invalid or duplicate log settings
-leave the bootstrap error filter in effect.
+settings, regardless of entry order. Invalid log settings leave the bootstrap
+error filter in effect.
 
 At `info` level, each completed phase produces a record:
 
@@ -89,7 +104,7 @@ The second record appears only at a requested shutdown boundary. Phase meanings:
 
 | Phase | Work completed |
 | --- | --- |
-| `started` | Temporary mounts, console setup, and command-line validation |
+| `started` | Temporary mounts, console setup, and configuration validation |
 | `modules` | All supplied modules loaded |
 | `discovered` | Root chain discovered and validated |
 | `assembled` | Carapace device activated |
@@ -164,14 +179,15 @@ sentinel from every layer and the final overwritten value before printing its
 success marker and powering off. The bulk payload is not read in full during
 validation. This is a synthetic demanding workload, not a full Fedora image.
 
-Small fixtures exercise argument validation, module failure/compression,
+Small fixtures exercise bootconfig validation, module failure/compression,
 discovery timeout, corrupt metadata/data, missing intermediate scutes, failed
 exec, halt boundaries, log filtering, and filesystem selection. Every expected
 shutdown requires QMP's explicit guest-shutdown event. A deliberate panic
 negative control ensures QEMU exit alone is rejected.
 
 The informational benchmark uses the same large recipe and validation service:
-two warm-up boots and ten measured boots, each in a fresh VM with info logging.
+two warm-up boots and ten measured boots, each in a fresh VM with
+`corium.log = info` in bootconfig.
 The primary metric is `pivoted.elapsed_us`, from entry to Corium's boot routine
 through the final root switch. It excludes startup in `main`, the final log
 write, and `exec`; successful systemd validation independently proves handoff.
@@ -193,10 +209,9 @@ pre-merge correctness gate and runner setup.
 
 ## Consumer migration
 
-Fedora's image builder needs to install Corium instead of the former Carapace
-init and emit `corium=<root-hash>`. Its module-tree layout already matches
-this contract. Remove the obsolete `root=/dev/mapper/root` assumption:
-Carapace manages the assembled device's identity.
+Image builders install Corium as `/init`, enable bootconfig, and supply
+`corium.root` with the Carapace tip hash. Fedora's module-tree layout matches
+this contract. Carapace manages the assembled device's identity.
 
 Version 0.2 removes the former library items `CORIUM_ROOT_OK`, `CORIUM_PIVOT`,
 `parse_root_carapace`, and `decode_root_carapace`. The library now exposes
