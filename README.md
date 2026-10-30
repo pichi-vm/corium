@@ -44,8 +44,10 @@ init (systemd) owns all subsequent operating-system setup.
    mounts. Use `pivot_root(".", ".")` and detach the
    old initramfs, relying on Linux 7.0+'s rootfs semantics. There is no recursive
    deletion, writable old-root directory, or legacy-kernel fallback.
-7. Execute `/sbin/init`. Console descriptors close on successful exec, but
-   remain available for a fatal diagnostic if the handoff fails.
+7. Execute `/sbin/init` with every received process argument after `argv[0]`,
+   preserving their bytes, order, and boundaries. Set `argv[0]` to `/sbin/init`
+   and inherit the environment. Console descriptors close on successful exec,
+   but remain available for a fatal diagnostic if the handoff fails.
 
 On fatal errors, Corium logs at error level, syncs, and attempts to power off.
 It never returns from PID 1. Invoking it as an ordinary process fails without

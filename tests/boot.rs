@@ -11,6 +11,45 @@ use support::{fixtures as f, harness};
 
 #[test]
 #[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn init_arguments() {
+    let h = harness();
+    let _suite = h.suite("init-arguments");
+    let root = f::argument_root(h);
+    let disk = f::base(h, &root, "arguments", false);
+    let initrd = f::initramfs(h, "arguments", false, false, "none");
+    let boot = h.boot_with_args(
+        "init-arguments",
+        &initrd,
+        Some(&disk.path),
+        &format!("corium.root={}; init.extra=\"bootconfig value\"", disk.root),
+        "CORIUM_TEST_ENV=\"value with spaces\" -- first \"two words\" \"\" key=value first -x é",
+    );
+    boot.expect(READY);
+    let arguments: Vec<_> = boot
+        .output
+        .lines()
+        .filter_map(|line| line.strip_prefix("CORIUM-INIT-ARG:"))
+        .collect();
+    assert_eq!(
+        arguments,
+        [
+            "<first>",
+            "<two words>",
+            "<>",
+            "<key=value>",
+            "<first>",
+            "<-x>",
+            "<é>",
+            "<extra=bootconfig value>"
+        ]
+    );
+    assert!(boot.output.contains("CORIUM-INIT-ARGV0:</sbin/init>"));
+    assert!(boot.output.contains("CORIUM-INIT-ENV:<value with spaces>"));
+    h.outcome("init-arguments", "PASS", "");
+}
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
 fn mounted_root_can_be_a_snapshot_origin() {
     let h = harness();
     let _suite = h.suite("shared-root");

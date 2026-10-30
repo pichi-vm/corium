@@ -118,6 +118,32 @@ pub(crate) fn shared_root(h: &Harness) -> PathBuf {
     root
 }
 
+/// Record the handoff's arguments and environment before starting systemd.
+pub(crate) fn argument_root(h: &Harness) -> PathBuf {
+    let root = root(h, "argument-root");
+    executable("/usr/bin/sh", &root);
+    executable("/usr/bin/mount", &root);
+    let init = root.join("sbin/init");
+    fs::remove_file(&init).unwrap();
+    fs::write(
+        &init,
+        concat!(
+            "#!/usr/bin/sh\n",
+            "/usr/bin/mount -n -i -t devtmpfs devtmpfs /dev || exit 1\n",
+            "exec > /dev/console 2>&1\n",
+            "printf 'CORIUM-INIT-ARGV0:<%s>\\n' \"$0\"\n",
+            "for argument in \"$@\"; do\n",
+            "    printf 'CORIUM-INIT-ARG:<%s>\\n' \"$argument\"\n",
+            "done\n",
+            "printf 'CORIUM-INIT-ENV:<%s>\\n' \"$CORIUM_TEST_ENV\"\n",
+            "exec /usr/lib/systemd/systemd\n",
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(init, fs::Permissions::from_mode(0o755)).unwrap();
+    root
+}
+
 fn walk(path: &Path, entries: &mut Vec<PathBuf>) {
     let mut children: Vec<_> = fs::read_dir(path)
         .unwrap()
