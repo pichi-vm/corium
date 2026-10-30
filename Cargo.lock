@@ -20,7 +20,7 @@ dependencies = [
 [[package]]
 name = "carapace"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/carapace?rev=cb2606184afa826001a6c17cac19ec62e4d4ea09#cb2606184afa826001a6c17cac19ec62e4d4ea09"
+source = "git+https://github.com/pichi-vm/carapace?rev=b2365ba4e1cd52ec7f8419c8553390dbe23507de#b2365ba4e1cd52ec7f8419c8553390dbe23507de"
 dependencies = [
  "devmap-core",
  "devmap-linux",
@@ -68,7 +68,7 @@ dependencies = [
 [[package]]
 name = "devmap-core"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
 dependencies = [
  "iocuddle",
 ]
@@ -76,7 +76,7 @@ dependencies = [
 [[package]]
 name = "devmap-linux"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
 dependencies = [
  "devmap-core",
  "iocuddle",
@@ -86,7 +86,7 @@ dependencies = [
 [[package]]
 name = "devmap-snapshot"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
 dependencies = [
  "devmap-core",
  "devmap-linux",
@@ -95,7 +95,7 @@ dependencies = [
 [[package]]
 name = "devmap-verity"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd#2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
+source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
 dependencies = [
  "devmap-core",
  "devmap-linux",
