@@ -1,0 +1,18 @@
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/pichi-vm/carapace?rev=cb2606184afa826001a6c17cac19ec62e4d4ea09"]
+git = "https://github.com/pichi-vm/carapace"
+rev = "cb2606184afa826001a6c17cac19ec62e4d4ea09"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/pichi-vm/devmap.git?rev=2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"]
+git = "https://github.com/pichi-vm/devmap.git"
+rev = "2679426fa1d4508fc5c3bbdf643efbdbe64a3edd"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+
+[net]
+offline = true

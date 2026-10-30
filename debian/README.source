@@ -1,42 +1,48 @@
 Corium host packaging for Ubuntu Resolute
 ========================================
 
-Prepare sources on a networked machine with Git, Cargo/Rust >= 1.89,
-Python >= 3.11, GNU tar and xz. From this checkout, run:
+The packaging/ubuntu-resolute branch is the source for the Launchpad
+recipe targeting ppa:nmccallum/pichi, resolute only. It contains debian/,
+the crates pinned by Cargo.lock in vendor/, and Cargo's complete
+.cargo/config.toml, including the Carapace and Devmap Git source redirects.
+LICENSE.dependencies records the bundled crates' licenses and notices.
 
-    python3 debian/make-orig-source.py ../corium-deb-source
-    cd ../corium-deb-source/corium-0.2.0
+This branch uses source format 3.0 (native), with version 0.2.0.1. All sources
+are in one tree. Launchpad does not need a separate orig tarball or a run
+of debian/make-orig-source.py. Build the recipe from this branch.
+
+After installing Build-Depends, source and binary builds need no network
+or warm Cargo cache. From a checkout of this branch, run:
+
     dpkg-buildpackage -S -us -uc
-
-The helper exports committed HEAD (excluding debian/), runs cargo vendor
---locked --versioned-dirs, and creates corium_0.2.0.orig.tar.xz plus a build
-tree with the checkout's debian/ copied in. Use a fresh output directory.
-Commit upstream changes before preparing sources; debian/ may be edited
-without regenerating the orig tarball. Reuse the same orig tarball for
-subsequent Debian revisions of this upstream version.
-
-The orig tarball contains vendor/, Cargo's complete .cargo/config.toml
-(including the Carapace and Devmap Git source redirects), and generated
-LICENSE.dependencies. No vendor sources are committed to Git. Archive
-ordering, timestamps, owners and modes are normalized. Keep Cargo.lock
-unchanged; all registry checksums and Git revisions come from that lock.
-
-After installing Build-Depends, binary builds require no network or warm
-Cargo cache:
-
     dpkg-buildpackage -b -us -uc
 
 For a clean Resolute build with a locally configured sbuild chroot:
 
-    sbuild --dist=resolute ../corium_0.2.0-1.dsc
+    sbuild --dist=resolute ../corium_0.2.0.1.dsc
 
-debian/rules gives Cargo a private home and always uses --offline --locked.
+debian/rules gives Cargo a private home and always builds with:
+
+    cargo build --offline --locked --release --bin corium
+
 Its clean target preserves vendor/, including Cargo.toml.orig files covered
-by Cargo's checksums.
-It installs the native host binary to /usr/bin/corium. Builds are intended
-for native amd64 and arm64 builders. Package tests are disabled: the VM
-tests need QEMU and the non-PID-1 test refuses root. Upstream's validation
-requirements still apply before merge.
+by Cargo's checksums. It installs the native host binary to /usr/bin/corium.
+Builds are intended for native amd64 and arm64 builders. Package tests are
+disabled: the VM tests need QEMU and the non-PID-1 test refuses root.
+Upstream's validation requirements still apply before merge.
 
-Target archive: ppa:nmccallum/pichi, resolute only. These commands prepare
-and build local packages; archive creation and uploads are handled by Infra.
+To refresh dependencies, use a networked machine with Cargo/Rust >= 1.89.
+Update Cargo.lock deliberately, then run:
+
+    cargo --config net.offline=false vendor --locked --versioned-dirs vendor
+
+Save the generated source configuration in .cargo/config.toml, including
+all Git source redirects, and add one [net] section with offline = true.
+Refresh LICENSE.dependencies from the bundled crates' manifests, license
+files and notices. Commit vendor/, Cargo.lock, the configuration and notices
+together. Review upstream changes before updating this packaging branch.
+
+GitHub main keeps the separate 3.0 (quilt) packaging path. Only on main,
+debian/make-orig-source.py prepares an orig tarball for local quilt builds;
+see main's debian/README.source for those instructions. The recipe on this
+branch does not use that helper. Archive setup is handled by Infra.

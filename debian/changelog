@@ -1,5 +1,12 @@
-corium (0.2.0-1) resolute; urgency=medium
+corium (0.2.0.1) resolute; urgency=medium
 
-  * Add host packaging with vendored crates and an offline Cargo build.
+  * Refresh vendored carapace to cb260618: zero-device size 2^53 sectors.
+
+ -- Nathaniel McCallum <nathaniel@mccallum.life>  Fri, 30 Oct 2026 02:05:35 -0400
+
+corium (0.2.0) resolute; urgency=medium
+
+  * Prepare native recipe packaging with committed vendored crates and an
+    offline Cargo build.
 
  -- Nathaniel McCallum <nathaniel@mccallum.life>  Wed, 28 Oct 2026 10:10:00 -0400
