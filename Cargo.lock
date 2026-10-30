@@ -20,7 +20,7 @@ dependencies = [
 [[package]]
 name = "carapace"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/carapace?rev=99caf7941ac8930a5761f6f843b6d8e53dd89587#99caf7941ac8930a5761f6f843b6d8e53dd89587"
+source = "git+https://github.com/pichi-vm/carapace?rev=cb2606184afa826001a6c17cac19ec62e4d4ea09#cb2606184afa826001a6c17cac19ec62e4d4ea09"
 dependencies = [
  "devmap-core",
  "devmap-linux",
