@@ -24,7 +24,7 @@ test = false
 [target.'cfg(target_os = "linux")'.dependencies]
 log = { version = "0.4", features = ["std", "kv"] }
 # Read-side carapace discovery and assembly from its trusted root.
-carapace = { git = "https://github.com/pichi-vm/carapace", rev = "cb2606184afa826001a6c17cac19ec62e4d4ea09" }
+carapace = { git = "https://github.com/pichi-vm/carapace", rev = "b2365ba4e1cd52ec7f8419c8553390dbe23507de" }
 # Safe Linux syscall wrappers, including pivot_root and console fd setup.
 rustix = { version = "1", default-features = false, features = ["std", "fs", "process", "mount", "system", "stdio"] }
 
