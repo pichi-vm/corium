@@ -1,9 +1,18 @@
 name: CI
 
 on:
+  # An opened or updated pull request starts its build and test checks.
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# A group names runs that GitHub handles together. Each main run has its
+# own group. Other runs share a group by check name and pull request or
+# branch. A replacement run cancels an active run in that shared group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
