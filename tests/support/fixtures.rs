@@ -464,6 +464,28 @@ fn check(path: &Path) {
     run(Command::new("e2fsck").arg("-fn").arg(path));
 }
 
+impl Harness {
+    fn filesystem_size(root: &Path) -> u64 {
+        let mut paths = vec![root.to_owned()];
+        walk(root, &mut paths);
+        let contents: u64 = paths
+            .iter()
+            .map(|path| {
+                path.symlink_metadata()
+                    .unwrap()
+                    .len()
+                    .div_ceil(BLOCK as u64)
+                    .max(1)
+                    * BLOCK as u64
+            })
+            .sum();
+        // Allow 25% plus 16 MiB for metadata, the journal and later edits.
+        // Default ext4 inode density also needs 16 KiB per tree entry.
+        let size = (contents + contents / 4 + 16 * MIB).max(paths.len() as u64 * 16_384);
+        size.max(64 * MIB).div_ceil(MIB) * MIB
+    }
+}
+
 pub(crate) fn base(h: &Harness, root: &Path, name: &str, squash: bool) -> Disk {
     let work = h.work.join(name);
     fs::create_dir(&work).unwrap();
@@ -476,7 +498,7 @@ pub(crate) fn base(h: &Harness, root: &Path, name: &str, squash: bool) -> Disk {
             "1",
         ]));
     } else {
-        filesystem(root, &raw, 64 * MIB);
+        filesystem(root, &raw, Harness::filesystem_size(root));
         check(&raw);
     }
     let scute = scute(&work, &raw, None, 0, &"00".repeat(32));
@@ -549,7 +571,8 @@ pub(crate) fn layered(h: &Harness, name: &str, depth: usize) -> (Disk, Vec<Scute
     )
     .unwrap();
     let raw = work.join("current.ext4");
-    filesystem(&root, &raw, if depth == 50 { 1536 * MIB } else { 64 * MIB });
+    let minimum = if depth == 50 { 1536 * MIB } else { 64 * MIB };
+    filesystem(&root, &raw, Harness::filesystem_size(&root).max(minimum));
     check(&raw);
     let mut scutes = vec![scute(&work, &raw, None, 0, &"00".repeat(32))];
     let previous = work.join("previous.ext4");
