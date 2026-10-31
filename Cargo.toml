@@ -63,6 +63,7 @@ too_many_lines = "allow"
 missing_panics_doc = "allow"
 needless_pass_by_value = "allow"
 uninlined_format_args = "allow"
+self_named_module_files = "deny"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 serde_json = "1"
