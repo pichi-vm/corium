@@ -1,0 +1,13 @@
+corium (0.2.0.1) resolute; urgency=medium
+
+  * Refresh vendored sources to match main, with Carapace at b2365ba4.
+  * Use native version 0.2.0.1 to supersede the published 0.2.0 build.
+
+ -- Nathaniel McCallum <nathaniel@mccallum.life>  Sat, 31 Oct 2026 08:38:20 -0400
+
+corium (0.2.0) resolute; urgency=medium
+
+  * Prepare native recipe packaging with committed vendored crates and an
+    offline Cargo build.
+
+ -- Nathaniel McCallum <nathaniel@mccallum.life>  Wed, 28 Oct 2026 10:10:00 -0400

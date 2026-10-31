@@ -68,6 +68,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Test the RPM path in a source tree without Debian's vendor data.
+          worktree=$(mktemp -d)
+          git archive HEAD | tar --exclude=vendor --exclude=.cargo -x -C "$worktree"
+          cd "$worktree"
           outdir=$(mktemp -d)
           make -f .copr/Makefile srpm \
             spec="$PWD/packaging/corium.spec" \
