@@ -149,6 +149,7 @@ impl Harness {
             "virtio_blk",
             "virtio_console",
             "dm_mod",
+            "loop",
             "dm_zero",
             "dm_snapshot",
             "dm_verity",

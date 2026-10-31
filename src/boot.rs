@@ -6,6 +6,8 @@ use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 
 use carapace::{Assemble, DevId};
+use devmap_core::Span;
+use devmap_linux::{Control, Table, targets::Linear};
 use rustix::mount::{
     MountFlags, MountPropagationFlags, UnmountFlags, mount, mount_change, unmount,
 };
@@ -13,6 +15,49 @@ use rustix::mount::{
 use crate::progress::{Phase, Progress};
 
 const SYSROOT: &str = "/sysroot";
+
+/// A one-to-one read-only view for mounting a reusable Carapace device.
+#[derive(Debug)]
+struct MountView {
+    control: Control,
+    id: DevId,
+}
+
+impl TryFrom<&fs::File> for MountView {
+    type Error = std::io::Error;
+
+    fn try_from(source: &fs::File) -> Result<Self, Self::Error> {
+        let control = Control::open()?;
+        let target = Linear {
+            device: source.metadata()?.try_into()?,
+            offset: 0,
+        };
+        let table = Table::<128>::default().add(
+            Span::new(0, carapace::ZERO_SIZE_SECTORS),
+            &target,
+            control.version("linear")?,
+        )?;
+        // Corium mounts one root as PID 1. A name collision fails rather than
+        // taking ownership of an existing mapping.
+        let view = Self {
+            id: control.create("corium-root")?,
+            control,
+        };
+        view.control.load(view.id, table, true)?;
+        view.control.suspend(view.id, false)?;
+        Ok(view)
+    }
+}
+
+impl Drop for MountView {
+    fn drop(&mut self) {
+        // Remove failed/unmounted views immediately; a successful mount keeps
+        // the view and its dependencies alive until the filesystem is released.
+        if let Err(error) = self.control.remove(self.id, true) {
+            log::warn!(target: "corium", error:% = error; "cannot defer root view removal");
+        }
+    }
+}
 
 /// Establish the read-only root and execute /sbin/init. Returns on error or requested shutdown.
 /// Must run as PID 1 in an initramfs; no temporary mounts or descriptors are
@@ -62,11 +107,8 @@ pub fn boot() -> Result<(), String> {
     if progress.complete(Phase::Assembled) {
         return Ok(());
     }
-    let id = device
-        .metadata()
-        .and_then(DevId::try_from)
-        .map_err(|e| format!("identify root device: {e}"))?;
-    let source = format!("/dev/dm-{}", id.minor());
+    let view = MountView::try_from(&device).map_err(|e| format!("create root mount view: {e}"))?;
+    let source = format!("/dev/dm-{}", view.id.minor());
     log::debug!(target: "corium", device = source.as_str(); "root device assembled");
     fs::create_dir_all(SYSROOT).map_err(|e| format!("create {SYSROOT}: {e}"))?;
     let filesystems = fs::read_to_string("/proc/filesystems")
@@ -75,7 +117,8 @@ pub fn boot() -> Result<(), String> {
         mount(source.as_str(), SYSROOT, fstype, MountFlags::RDONLY, None)
             .map_err(std::io::Error::from)
     })?;
-    // The mount now retains the deferred-removal stack.
+    // The mount retains its own view, leaving the shared chain free for stacking.
+    drop(view);
     drop(device);
 
     if progress.complete(Phase::Mounted) {

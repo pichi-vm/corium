@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::fs::{self, File, FileTimes, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -91,6 +91,31 @@ fn service(root: &Path, validate: bool) {
     };
     fs::write(root.join("etc/systemd/system/boot-complete.service"), format!(
         "[Unit]\nDescription=Validate Corium root\nDefaultDependencies=no\nSuccessAction=poweroff-immediate\nFailureAction=poweroff-immediate\n[Service]\nType=oneshot\n{check}ExecStart=/usr/bin/echo {READY}\nStandardOutput=tty\nStandardError=tty\nTTYPath=/dev/console\n")).unwrap();
+}
+
+pub(crate) fn shared_root(h: &Harness) -> PathBuf {
+    let root = root(h, "shared-root-tree");
+    for name in [
+        "sh", "dmsetup", "losetup", "mount", "umount", "mkdir", "truncate",
+    ] {
+        let source = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|dir| dir.join(name))
+            .find(|path| path.is_file())
+            .unwrap_or_else(|| panic!("missing required tool: {name}"));
+        fs::copy(&source, root.join("usr/bin").join(name)).unwrap();
+        libraries(&source, &root);
+    }
+    fs::write(root.join("fixture/source-marker"), "original\n").unwrap();
+    let check = root.join("usr/bin/check-shared-root");
+    fs::write(&check, include_str!("shared-root.sh")).unwrap();
+    fs::set_permissions(check, fs::Permissions::from_mode(0o755)).unwrap();
+    let unit = root.join("etc/systemd/system/boot-complete.service");
+    let text = fs::read_to_string(&unit).unwrap().replace(
+        "Type=oneshot\n",
+        "Type=oneshot\nExecStart=/usr/bin/check-shared-root\n",
+    );
+    fs::write(unit, text).unwrap();
+    root
 }
 
 fn walk(path: &Path, entries: &mut Vec<PathBuf>) {

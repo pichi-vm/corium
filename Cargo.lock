@@ -39,6 +39,8 @@ name = "corium"
 version = "0.2.0"
 dependencies = [
  "carapace",
+ "devmap-core",
+ "devmap-linux",
  "log",
  "rustix",
  "serde_json",

@@ -36,8 +36,10 @@ init (systemd) owns all subsequent operating-system setup.
 4. Discover the root chain, allowing up to five seconds for missing partitions.
    Validation and other I/O failures are fatal immediately. Assemble it using
    Carapace's file-based API.
-5. Read `/proc/filesystems`. Try the listed non-`nodev` drivers in order until
-   a read-only mount succeeds. There is no hardcoded filesystem list.
+5. Create a read-only dm-linear view named `corium-root` over the assembled
+   device, leaving the shared chain available as another consumer's origin.
+   Read `/proc/filesystems` and try the listed non-`nodev` drivers in order
+   until the view mounts read-only. There is no hardcoded filesystem list.
 6. Make mount propagation recursively private, then detach the temporary API
    mounts. Use `pivot_root(".", ".")` and detach the
    old initramfs, relying on Linux 7.0+'s rootfs semantics. There is no recursive
@@ -135,7 +137,8 @@ The rootless x86-64 VM tests are ignored Rust integration tests. They require
 read/write access to `/dev/kvm`, a readable Linux 7.0+ kernel and matching
 installed modules/configuration, stable Rust with the x86-64 musl target,
 QEMU, host systemd, `cpio`, `sfdisk`, `mkfs.ext4`, `debugfs`, `e2fsck`,
-`modprobe`, `veritysetup`, `ldd`, `ldconfig`, `sha256sum`, `df`, and `lsblk`.
+`modprobe`, `veritysetup`, `dmsetup`, `losetup`, `mount`, `umount`, `mkdir`,
+`truncate`, `sh`, `ldd`, `ldconfig`, `sha256sum`, `df`, and `lsblk`.
 Installed compressed modules also require the corresponding `xz`, `gzip`, or
 `zstd` tool. No root, host mounts, loop devices, or host device-mapper changes
 are needed. Required prerequisites fail explicitly; optional decompressor and

@@ -11,6 +11,29 @@ use support::{fixtures as f, harness};
 
 #[test]
 #[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn mounted_root_can_be_a_snapshot_origin() {
+    let h = harness();
+    let _suite = h.suite("shared-root");
+    let root = f::shared_root(h);
+    let disk = f::base(h, &root, "shared-root", false);
+    let initrd = f::initramfs(h, "shared-root", false, false, "none");
+    let boot = h.boot(
+        "shared-root",
+        &initrd,
+        Some(&disk.path),
+        &format!("corium={}", disk.root),
+    );
+    boot.expect(READY);
+    assert!(boot.output.contains("CORIUM-SHARED-ROOT-OK"));
+    h.outcome(
+        "shared-root",
+        "PASS",
+        "mounted root remains a reusable origin",
+    );
+}
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
 fn boot_contract() {
     let h = harness();
     let _suite = h.suite("boot-contract");
