@@ -73,6 +73,40 @@ fn mounted_root_can_be_a_snapshot_origin() {
 
 #[test]
 #[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn partitioned_roots() {
+    let h = harness();
+    let _suite = h.suite("partitioned-roots");
+    let root = f::root(h, "partitioned-root-tree");
+    let initrd = f::initramfs(h, "partitioned-roots", false, false, "none");
+    for (name, expected) in [
+        ("root-with-esp", READY),
+        (
+            "wrong-root-architecture",
+            "no discoverable root for the target architecture",
+        ),
+        ("ambiguous-root", "multiple discoverable partitions"),
+        ("corrupt-backup-gpt", "create root mount view:"),
+    ] {
+        let disk = f::partition_case(h, &root, name);
+        let boot = h.boot(
+            name,
+            &initrd,
+            Some(&disk.path),
+            &format!("corium.root={}; corium.log=debug", disk.root),
+        );
+        boot.expect(expected);
+        if expected == READY {
+            assert!(boot.output.contains("root partition selected"));
+        } else {
+            assert!(!boot.output.contains(READY));
+            assert!(!boot.output.contains("waiting for root partitions"));
+        }
+        h.outcome(name, "PASS", "");
+    }
+}
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
 fn boot_contract() {
     let h = harness();
     let _suite = h.suite("boot-contract");
@@ -276,7 +310,7 @@ fn boot_contract() {
             "tampered-root-data",
             disk.offsets[0].0 + 2 * 4096 + 64,
             b"X".as_slice(),
-            "cannot mount root read-only",
+            "create root mount view:",
         ),
     ] {
         let path = h.work.join(format!("{name}.gpt"));
