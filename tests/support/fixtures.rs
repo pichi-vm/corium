@@ -486,6 +486,76 @@ impl Harness {
     }
 }
 
+/// Keep one partition table across filesystem edits so layer tests modify only
+/// their intended files. The independent snapshot encoder still creates scutes.
+#[derive(Debug)]
+struct RootDisk {
+    path: PathBuf,
+    offset: u64,
+    capacity: u64,
+}
+
+impl RootDisk {
+    fn new(work: &Path, filesystem: &Path, esp: bool) -> Self {
+        let capacity = fs::metadata(filesystem).unwrap().len().div_ceil(4096) * 4096;
+        let offset = if esp { 65 * MIB } else { MIB };
+        let size = offset + capacity + MIB;
+        let path = work.join("partitioned.raw");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        file.set_len(size).unwrap();
+        gpt::mbr::ProtectiveMBR::with_lb_size((size / 4096 - 1) as u32)
+            .overwrite_lba0(&mut file)
+            .unwrap();
+        let mut disk = gpt::GptConfig::new()
+            .writable(true)
+            .logical_block_size(gpt::disk::LogicalBlockSize::Lb4096)
+            .create_from_device(file, None)
+            .unwrap();
+        if esp {
+            disk.add_partition_at(
+                "esp",
+                1,
+                MIB / 4096,
+                64 * MIB / 4096,
+                gpt::partition_types::EFI,
+                0,
+            )
+            .unwrap();
+        }
+        disk.add_partition_at(
+            "root",
+            if esp { 2 } else { 1 },
+            offset / 4096,
+            capacity / 4096,
+            gpt::partition_types::LINUX_ROOT_X64,
+            0,
+        )
+        .unwrap();
+        disk.write().unwrap().sync_all().unwrap();
+        let output = Self {
+            path,
+            offset,
+            capacity,
+        };
+        output.update(filesystem);
+        output
+    }
+
+    fn update(&self, filesystem: &Path) {
+        let mut source = File::open(filesystem).unwrap();
+        let size = source.metadata().unwrap().len();
+        assert!(size <= self.capacity);
+        let mut target = OpenOptions::new().write(true).open(&self.path).unwrap();
+        target.seek(SeekFrom::Start(self.offset)).unwrap();
+        assert_eq!(std::io::copy(&mut source, &mut target).unwrap(), size);
+    }
+}
+
 pub(crate) fn base(h: &Harness, root: &Path, name: &str, squash: bool) -> Disk {
     let work = h.work.join(name);
     fs::create_dir(&work).unwrap();
@@ -501,7 +571,48 @@ pub(crate) fn base(h: &Harness, root: &Path, name: &str, squash: bool) -> Disk {
         filesystem(root, &raw, Harness::filesystem_size(root));
         check(&raw);
     }
-    let scute = scute(&work, &raw, None, 0, &"00".repeat(32));
+    let partitioned = RootDisk::new(&work, &raw, false);
+    let scute = scute(&work, &partitioned.path, None, 0, &"00".repeat(32));
+    pack(&work, "disk", &[scute], None)
+}
+
+/// Seal changed GPT metadata into a valid scute so boot tests exercise layout
+/// validation rather than merely failing the outer integrity check.
+pub(crate) fn partition_case(h: &Harness, root: &Path, name: &str) -> Disk {
+    let work = h.work.join(name);
+    fs::create_dir(&work).unwrap();
+    let raw = work.join("filesystem");
+    filesystem(root, &raw, Harness::filesystem_size(root));
+    let partitioned = RootDisk::new(&work, &raw, true);
+    match name {
+        "root-with-esp" => {}
+        "wrong-root-architecture" | "ambiguous-root" => {
+            let mut disk = gpt::GptConfig::new()
+                .writable(true)
+                .logical_block_size(gpt::disk::LogicalBlockSize::Lb4096)
+                .open(&partitioned.path)
+                .unwrap();
+            let mut entries = disk.partitions().clone();
+            let (index, kind) = if name == "wrong-root-architecture" {
+                (2, gpt::partition_types::LINUX_ROOT_ARM_64)
+            } else {
+                (1, gpt::partition_types::LINUX_ROOT_X64)
+            };
+            entries.get_mut(&index).unwrap().part_type_guid = kind;
+            disk.update_partitions(entries).unwrap();
+            disk.write().unwrap();
+        }
+        "corrupt-backup-gpt" => {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .open(&partitioned.path)
+                .unwrap();
+            file.seek(SeekFrom::End(-4096)).unwrap();
+            file.write_all(b"INVALID!").unwrap();
+        }
+        _ => panic!("unknown partition fixture: {name}"),
+    }
+    let scute = scute(&work, &partitioned.path, None, 0, &"00".repeat(32));
     pack(&work, "disk", &[scute], None)
 }
 
@@ -574,11 +685,12 @@ pub(crate) fn layered(h: &Harness, name: &str, depth: usize) -> (Disk, Vec<Scute
     let minimum = if depth == 50 { 1536 * MIB } else { 64 * MIB };
     filesystem(&root, &raw, Harness::filesystem_size(&root).max(minimum));
     check(&raw);
-    let mut scutes = vec![scute(&work, &raw, None, 0, &"00".repeat(32))];
-    let previous = work.join("previous.ext4");
+    let partitioned = RootDisk::new(&work, &raw, false);
+    let mut scutes = vec![scute(&work, &partitioned.path, None, 0, &"00".repeat(32))];
+    let previous = work.join("previous.raw");
     let mut recipe = Vec::new();
     for index in 1..depth {
-        fs::copy(&raw, &previous).unwrap();
+        fs::copy(&partitioned.path, &previous).unwrap();
         let sentinel = work.join("sentinel");
         fs::write(
             &sentinel,
@@ -622,9 +734,10 @@ pub(crate) fn layered(h: &Harness, name: &str, depth: usize) -> (Disk, Vec<Scute
         contents_bytes += format!("last writer is scute {index}\n").len() as u64
             - format!("last writer is scute {}\n", index - 1).len() as u64;
         check(&raw);
+        partitioned.update(&raw);
         let next = scute(
             &work,
-            &raw,
+            &partitioned.path,
             Some(&previous),
             index,
             &scutes.last().unwrap().root,

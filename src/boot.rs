@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 
+use crate::disk::{Architecture, Disk};
 use carapace::{Assemble, DevId};
 use devmap_core::Span;
 use devmap_linux::{Control, Table, targets::Linear};
@@ -16,7 +17,7 @@ use crate::progress::{Phase, Progress};
 
 const SYSROOT: &str = "/sysroot";
 
-/// A one-to-one read-only view for mounting a reusable Carapace device.
+/// A read-only root partition view of a reusable Carapace device.
 #[derive(Debug)]
 struct MountView {
     control: Control,
@@ -27,13 +28,32 @@ impl TryFrom<&fs::File> for MountView {
     type Error = std::io::Error;
 
     fn try_from(source: &fs::File) -> Result<Self, Self::Error> {
+        let architecture = match std::env::consts::ARCH {
+            "x86_64" => Architecture::X86_64,
+            "aarch64" => Architecture::Aarch64,
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "unsupported root partition architecture",
+                ));
+            }
+        };
+        if rustix::fs::ioctl_blksszget(source)? != 4096 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "partitioned carapace requires 4096-byte logical blocks",
+            ));
+        }
+        let disk = Disk::read(&mut &*source, carapace::ZERO_SIZE_BYTES)?;
+        let root = disk.root(architecture)?;
+        log::debug!(target: "corium", start = root.start, sectors = root.sectors; "root partition selected");
         let control = Control::open()?;
         let target = Linear {
             device: source.metadata()?.try_into()?,
-            offset: 0,
+            offset: root.start,
         };
         let table = Table::<128>::default().add(
-            Span::new(0, carapace::ZERO_SIZE_SECTORS),
+            Span::new(0, root.sectors),
             &target,
             control.version("linear")?,
         )?;

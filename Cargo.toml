@@ -25,6 +25,8 @@ test = false
 log = { version = "0.4", features = ["std", "kv"] }
 # Read-side carapace discovery and assembly from its trusted root.
 carapace = { git = "https://github.com/pichi-vm/carapace", rev = "b2365ba4e1cd52ec7f8419c8553390dbe23507de" }
+# Inner root partition tables are interpreted by Corium.
+gpt = "4.1"
 # The same device-mapper wrappers already used by Carapace.
 devmap-core = { git = "https://github.com/pichi-vm/devmap.git", rev = "3a2728f617e9272be5224bbf76ffc4deafdfe83b" }
 devmap-linux = { git = "https://github.com/pichi-vm/devmap.git", rev = "3a2728f617e9272be5224bbf76ffc4deafdfe83b" }
