@@ -19,18 +19,8 @@ init (systemd) owns all subsequent operating-system setup.
   `corium.root` in the bootconfig document. The value is the Carapace tip
   hash: nonempty, even-length hexadecimal, in either case, with no `0x`
   prefix. Carapace validates the digest length against the chain.
-- Expose the Carapace's outer scute GPT partitions to the guest. The assembled
-  Carapace must contain a bounded GPT disk using 4096-byte logical blocks,
-  with exactly one discoverable root partition for the guest architecture
-  (x86-64 or ARM64). Use the root type
-  UUID from the Discoverable Partitions Specification, selected when Corium
-  is compiled. Roots marked no-auto are not candidates. Other partition types
-  and any table order are supported; Corium only maps and mounts the root.
-  All occupied partitions must have valid, nonoverlapping extents. Their
-  names and instance UUIDs do not affect root selection.
-  Corium reads the inner GPT; Carapace treats its contents as opaque.
-  The root view is a device-mapper device, not a kernel partition. This does
-  not provide systemd GPT auto-discovery of sibling partitions.
+- Expose the Carapace's GPT partitions to the guest. The assembled Carapace
+  must contain a filesystem directly, without an inner partition table.
 - Include an executable `/sbin/init`, its interpreter/libraries, and the
   directories and files the real init requires in that filesystem. Corium
   does not create runtime mountpoints inside the read-only root.
@@ -46,17 +36,8 @@ init (systemd) owns all subsequent operating-system setup.
 4. Discover the root chain, allowing up to five seconds for missing partitions.
    Validation and other I/O failures are fatal immediately. Assemble it using
    Carapace's file-based API.
-5. Validate both GPT headers and partition tables inside the assembled device.
-   The primary header declares the logical disk's end, which may be smaller
-   than Carapace's backing extent. Reject corrupt metadata, invalid ranges,
-   overlapping partitions and absent or ambiguous native roots.
-   Read both tables in 4 KiB blocks, checking their complete CRCs and exact
-   agreement. Retain only occupied partition numbers, types, extents and
-   eligibility for validation and diagnostics. GPT 1.0 with 128-byte entries
-   and 128–8192 table slots is supported; unused slots need no stored record.
-   Create a read-only dm-linear view named `corium-root` over the selected
-   partition's offset and length, leaving the shared chain available as
-   another consumer's origin.
+5. Create a read-only dm-linear view named `corium-root` over the assembled
+   device, leaving the shared chain available as another consumer's origin.
    Read `/proc/filesystems` and try the listed non-`nodev` drivers in order
    until the view mounts read-only. There is no hardcoded filesystem list.
 6. Make mount propagation recursively private, then detach the temporary API
@@ -205,9 +186,7 @@ validation. This is a synthetic demanding workload, not a full Fedora image.
 
 Small fixtures exercise bootconfig validation, module failure/compression,
 discovery timeout, corrupt metadata/data, missing intermediate scutes, failed
-exec, halt boundaries, log filtering, and filesystem selection. Partition cases
-cover a root after an ESP, wrong architecture, ambiguous roots and a corrupt
-backup table header sealed into an otherwise valid Carapace. Every expected
+exec, halt boundaries, log filtering, and filesystem selection. Every expected
 shutdown requires QMP's explicit guest-shutdown event. A deliberate panic
 negative control ensures QEMU exit alone is rejected.
 
