@@ -25,6 +25,10 @@ test = false
 log = { version = "0.4", features = ["std", "kv"] }
 # Read-side carapace discovery and assembly from its trusted root.
 carapace = { git = "https://github.com/pichi-vm/carapace", rev = "b2365ba4e1cd52ec7f8419c8553390dbe23507de" }
+# Read-only GPT checksums, identifiers and wire layouts.
+crc = "3"
+uuid = "1"
+zerocopy = { version = "0.8", features = ["derive"] }
 # The same device-mapper wrappers already used by Carapace.
 devmap-core = { git = "https://github.com/pichi-vm/devmap.git", rev = "3a2728f617e9272be5224bbf76ffc4deafdfe83b" }
 devmap-linux = { git = "https://github.com/pichi-vm/devmap.git", rev = "3a2728f617e9272be5224bbf76ffc4deafdfe83b" }
@@ -66,6 +70,8 @@ uninlined_format_args = "allow"
 self_named_module_files = "deny"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
+# An independent writer creates GPT fixtures; UUID generation stays in tests.
+gpt = "4.1"
 serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
