@@ -26,6 +26,7 @@ truncate -s 32M /run/root-derivation/cow
 backing=$(losetup --find --show /run/root-derivation/cow)
 cleanup() {
     umount /run/root-derivation/mount 2>/dev/null || :
+    dmsetup remove --noudevsync corium-test-derived-root 2>/dev/null || :
     dmsetup remove --noudevsync corium-test-derived 2>/dev/null || :
     losetup --detach "$backing" 2>/dev/null || :
 }
@@ -35,18 +36,24 @@ trap cleanup EXIT
 dmsetup create --noudevsync corium-test-derived \
     --table "0 $sectors snapshot $origin $backing P 8"
 set -- $(dmsetup table corium-root)
-test "$2" = "$sectors"
+root_sectors=$2
+root_offset=$5
+test "$root_sectors" -lt "$sectors"
 test "$3" = linear
 test "$4" = "$origin"
-test "$5" = 0
+test "$root_offset" -gt 0
 mkdir /run/root-derivation/mount
 set -- $(dmsetup info -c --noheadings -o minor corium-test-derived)
+dmsetup create --noudevsync corium-test-derived-root \
+    --table "0 $root_sectors linear /dev/dm-$1 $root_offset"
+set -- $(dmsetup info -c --noheadings -o minor corium-test-derived-root)
 mount -t ext4 -o nodev,nosuid "/dev/dm-$1" /run/root-derivation/mount
 printf 'derived\n' > /run/root-derivation/mount/fixture/derived-marker
 test ! -e /fixture/derived-marker
 read -r marker < /fixture/source-marker
 test "$marker" = original
 umount /run/root-derivation/mount
+dmsetup remove --noudevsync corium-test-derived-root
 dmsetup remove --noudevsync corium-test-derived
 losetup --detach "$backing"
 trap - EXIT

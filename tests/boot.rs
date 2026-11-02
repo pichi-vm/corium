@@ -276,7 +276,7 @@ fn boot_contract() {
             "tampered-root-data",
             disk.offsets[0].0 + 2 * 4096 + 64,
             b"X".as_slice(),
-            "cannot mount root read-only",
+            "create root mount view:",
         ),
     ] {
         let path = h.work.join(format!("{name}.gpt"));

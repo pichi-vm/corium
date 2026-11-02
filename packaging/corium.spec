@@ -44,6 +44,8 @@ BuildRequires:  cargo-rpm-macros >= 26
 # Use clean versions: EL's cargo-vendor.txt generator rejects Git URLs.
 Provides:       bundled(crate(bitflags)) = 2.13.2
 Provides:       bundled(crate(carapace)) = 0.1.0
+Provides:       bundled(crate(crc)) = 3.4.0
+Provides:       bundled(crate(crc-catalog)) = 2.5.0
 Provides:       bundled(crate(devmap-core)) = 0.1.0
 Provides:       bundled(crate(devmap-linux)) = 0.1.0
 Provides:       bundled(crate(devmap-snapshot)) = 0.1.0
@@ -52,6 +54,7 @@ Provides:       bundled(crate(iocuddle)) = 0.4.0
 Provides:       bundled(crate(linux-raw-sys)) = 0.12.1
 Provides:       bundled(crate(log)) = 0.4.34
 Provides:       bundled(crate(rustix)) = 1.1.5
+Provides:       bundled(crate(uuid)) = 1.29.0
 Provides:       bundled(crate(zerocopy)) = 0.8.63
 
 %global _description %{expand:

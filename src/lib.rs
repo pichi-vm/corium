@@ -10,6 +10,7 @@
 mod boot;
 mod bootconfig;
 mod discovery;
+mod disk;
 mod logging;
 mod modules;
 mod progress;
