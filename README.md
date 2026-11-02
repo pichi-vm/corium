@@ -205,7 +205,9 @@ validation. This is a synthetic demanding workload, not a full Fedora image.
 
 Small fixtures exercise bootconfig validation, module failure/compression,
 discovery timeout, corrupt metadata/data, missing intermediate scutes, failed
-exec, halt boundaries, log filtering, and filesystem selection. Every expected
+exec, halt boundaries, log filtering, and filesystem selection. Partition cases
+cover a root after an ESP, wrong architecture, ambiguous roots and a corrupt
+backup table header sealed into an otherwise valid Carapace. Every expected
 shutdown requires QMP's explicit guest-shutdown event. A deliberate panic
 negative control ensures QEMU exit alone is rejected.
 
