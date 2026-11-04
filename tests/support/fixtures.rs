@@ -556,6 +556,16 @@ impl RootDisk {
     }
 }
 
+pub(crate) fn naked(h: &Harness, root: &Path, name: &str) -> Disk {
+    let work = h.work.join(name);
+    fs::create_dir(&work).unwrap();
+    let raw = work.join("filesystem");
+    filesystem(root, &raw, Harness::filesystem_size(root));
+    check(&raw);
+    let scute = scute(&work, &raw, None, 0, &"00".repeat(32));
+    pack(&work, "disk", &[scute], None)
+}
+
 pub(crate) fn base(h: &Harness, root: &Path, name: &str, squash: bool) -> Disk {
     let work = h.work.join(name);
     fs::create_dir(&work).unwrap();

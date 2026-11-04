@@ -101,6 +101,61 @@ impl Fixture {
 }
 
 #[test]
+fn probe_distinguishes_naked_filesystems_from_gpt() {
+    let mut bytes = Cursor::new(vec![0xa5; 8192]);
+    assert!(
+        Disk::probe(&mut bytes, carapace::ZERO_SIZE_BYTES, X64)
+            .unwrap()
+            .is_none()
+    );
+    let mut fixture = Fixture::new(&[partition_types::LINUX_ROOT_X64]);
+    assert_eq!(
+        Disk::probe(&mut fixture.bytes, carapace::ZERO_SIZE_BYTES, X64)
+            .unwrap()
+            .unwrap()
+            .root,
+        Partition {
+            start: 2048,
+            sectors: 2048
+        }
+    );
+}
+
+#[test]
+fn probe_preserves_gpt_validation_errors() {
+    for offset in [4096 + 56, SIZE - 4096, 8192] {
+        let mut fixture = Fixture::new(&[partition_types::LINUX_ROOT_X64]);
+        fixture.bytes.get_mut()[offset] ^= 1;
+        assert_eq!(
+            Disk::probe(&mut fixture.bytes, SIZE as u64, X64)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+}
+
+#[test]
+fn probe_propagates_read_failures() {
+    let mut spy = ReadSpy {
+        bytes: Cursor::new(vec![0; 8192]),
+        reads: Vec::new(),
+        fail_at: Some(4096),
+    };
+    let error = Disk::probe(&mut spy, carapace::ZERO_SIZE_BYTES, X64).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert!(error.to_string().contains("injected device failure"));
+    spy.fail_at = None;
+    spy.bytes.get_mut().truncate(4096);
+    assert_eq!(
+        Disk::probe(&mut spy, carapace::ZERO_SIZE_BYTES, X64)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::UnexpectedEof
+    );
+}
+
+#[test]
 fn selects_native_root_beside_esp_and_foreign_root() {
     let mut fixture = Fixture::new(&[
         partition_types::LINUX_ROOT_X64,

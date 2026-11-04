@@ -17,7 +17,7 @@ use crate::progress::{Phase, Progress};
 
 const SYSROOT: &str = "/sysroot";
 
-/// A read-only root partition view of a reusable Carapace device.
+/// A read-only filesystem view of a reusable Carapace device.
 #[derive(Debug)]
 struct MountView {
     control: Control,
@@ -28,26 +28,30 @@ impl TryFrom<&fs::File> for MountView {
     type Error = std::io::Error;
 
     fn try_from(source: &fs::File) -> Result<Self, Self::Error> {
-        if rustix::fs::ioctl_blksszget(source)? != 4096 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "partitioned carapace requires 4096-byte logical blocks",
-            ));
-        }
-        let disk = Disk::read(
+        let (start, sectors) = if let Some(disk) = Disk::probe(
             &mut &*source,
             carapace::ZERO_SIZE_BYTES,
             ROOT_PARTITION_TYPE,
-        )?;
-        let root = disk.root;
-        log::debug!(target: "corium", start = root.start, sectors = root.sectors; "root partition selected");
+        )? {
+            if rustix::fs::ioctl_blksszget(source)? != 4096 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "partitioned carapace requires 4096-byte logical blocks",
+                ));
+            }
+            let root = disk.root;
+            log::debug!(target: "corium", start = root.start, sectors = root.sectors; "root partition selected");
+            (root.start, root.sectors)
+        } else {
+            (0, carapace::ZERO_SIZE_SECTORS)
+        };
         let control = Control::open()?;
         let target = Linear {
             device: source.metadata()?.try_into()?,
-            offset: root.start,
+            offset: start,
         };
         let table = Table::<128>::default().add(
-            Span::new(0, root.sectors),
+            Span::new(0, sectors),
             &target,
             control.version("linear")?,
         )?;
