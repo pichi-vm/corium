@@ -54,21 +54,23 @@ fn mounted_root_can_be_a_snapshot_origin() {
     let h = harness();
     let _suite = h.suite("shared-root");
     let root = f::shared_root(h);
-    let disk = f::base(h, &root, "shared-root", false);
     let initrd = f::initramfs(h, "shared-root", false, false, "none");
-    let boot = h.boot(
-        "shared-root",
-        &initrd,
-        Some(&disk.path),
-        &format!("corium.root={}", disk.root),
-    );
-    boot.expect(READY);
-    assert!(boot.output.contains("CORIUM-SHARED-ROOT-OK"));
-    h.outcome(
-        "shared-root",
-        "PASS",
-        "mounted root remains a reusable origin",
-    );
+    for name in ["shared-root", "naked-shared-root"] {
+        let disk = if name == "shared-root" {
+            f::base(h, &root, name, false)
+        } else {
+            f::naked(h, &root, name)
+        };
+        let boot = h.boot(
+            name,
+            &initrd,
+            Some(&disk.path),
+            &format!("corium.root={}", disk.root),
+        );
+        boot.expect(READY);
+        assert!(boot.output.contains("CORIUM-SHARED-ROOT-OK"));
+        h.outcome(name, "PASS", "mounted root remains a reusable origin");
+    }
 }
 
 #[test]

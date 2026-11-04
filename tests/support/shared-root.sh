@@ -38,10 +38,14 @@ dmsetup create --noudevsync corium-test-derived \
 set -- $(dmsetup table corium-root)
 root_sectors=$2
 root_offset=$5
-test "$root_sectors" -lt "$sectors"
 test "$3" = linear
 test "$4" = "$origin"
-test "$root_offset" -gt 0
+if [ "$root_offset" -eq 0 ]; then
+    test "$root_sectors" = "$sectors"
+else
+    test "$root_offset" -gt 0
+    test "$root_sectors" -lt "$sectors"
+fi
 mkdir /run/root-derivation/mount
 set -- $(dmsetup info -c --noheadings -o minor corium-test-derived)
 dmsetup create --noudevsync corium-test-derived-root \

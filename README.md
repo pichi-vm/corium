@@ -20,7 +20,8 @@ init (systemd) owns all subsequent operating-system setup.
   hash: nonempty, even-length hexadecimal, in either case, with no `0x`
   prefix. Carapace validates the digest length against the chain.
 - Expose the Carapace's GPT partitions to the guest. The assembled Carapace
-  must contain a filesystem directly, without an inner partition table.
+  may contain a filesystem directly or a GPT with one eligible root partition
+  for the guest architecture. Corium detects the layout from the GPT signature.
 - Include an executable `/sbin/init`, its interpreter/libraries, and the
   directories and files the real init requires in that filesystem. Corium
   does not create runtime mountpoints inside the read-only root.
@@ -37,7 +38,8 @@ init (systemd) owns all subsequent operating-system setup.
    Validation and other I/O failures are fatal immediately. Assemble it using
    Carapace's file-based API.
 5. Create a read-only dm-linear view named `corium-root` over the assembled
-   device, leaving the shared chain available as another consumer's origin.
+   device or its selected GPT root partition, leaving the shared chain
+   available as another consumer's origin.
    Read `/proc/filesystems` and try the listed non-`nodev` drivers in order
    until the view mounts read-only. There is no hardcoded filesystem list.
 6. Make mount propagation recursively private, then detach the temporary API

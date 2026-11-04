@@ -42,6 +42,20 @@ pub(crate) struct Disk {
 }
 
 impl Disk {
+    /// Absence of the GPT signature denotes a naked filesystem. Read failures,
+    /// including dm-verity failures, and invalid GPT metadata remain errors.
+    pub(crate) fn probe(
+        reader: &mut (impl Read + Seek),
+        capacity: u64,
+        root_type: Uuid,
+    ) -> io::Result<Option<Self>> {
+        let bytes = Self::block(reader, 1, "root layout")?;
+        if &bytes[..8] != b"EFI PART" {
+            return Ok(None);
+        }
+        Self::read(reader, capacity, root_type).map(Some)
+    }
+
     /// `capacity` bounds the backing device, not the smaller logical GPT disk.
     pub(crate) fn read(
         reader: &mut (impl Read + Seek),
