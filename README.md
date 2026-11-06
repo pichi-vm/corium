@@ -239,14 +239,16 @@ The packaged executable is static and can be used as an initramfs init.
 
 The `PPA source` workflow vendors the locked Rust dependencies on a
 GitHub-hosted runner after each push to `main`, then replaces `build/ppa`
-with that prepared source tree. This branch is generated: do not edit it
-or merge it back into `main`. No compilation or signing happens in CI.
+with that prepared source tree. It requests a Launchpad import, waits for
+that revision to arrive, and requests builds for the recipe's selected
+Ubuntu releases. This branch is generated: do not edit it or merge it back
+into `main`. No compilation or package signing happens in CI.
 
 Launchpad imports this repository and builds the source into
 [`ppa:nmccallum/pichi`](https://launchpad.net/~nmccallum/+archive/ubuntu/pichi).
 Configure the existing
 [Corium recipe](https://code.launchpad.net/~nmccallum/+recipe/corium-resolute)
-with daily builds enabled and this recipe text:
+with daily builds disabled and this recipe text:
 
 ```text
 # git-build-recipe format 0.4 deb-version {debversion}+{time}
@@ -255,5 +257,14 @@ lp:pichi-vm build/ppa
 
 Select the Ubuntu releases in the recipe and `amd64` and `arm64` in the
 PPA. One branch serves all releases; Launchpad adds the release suffix to
-each package version. Packages may lag behind `main` until the next daily
-build. No personal GPG key or Launchpad credential is needed in GitHub.
+each package version. CI finishes once the build request is accepted;
+package building and publication continue on Launchpad.
+
+Authorize the `pichi-vm` OAuth application to change non-private data and
+save its OAuth Authorization header as the repository Actions secret
+`LAUNCHPAD_AUTHORIZATION`. The header must include the consumer key, access
+token, `PLAINTEXT` signature method, and encoded signature; CI adds a fresh
+timestamp and nonce to each request. See Launchpad's
+[authentication instructions](https://ubuntu.com/docs/launchpad/user/how-to/launchpad-web-signing/).
+No personal GPG key is needed. The API credential can be revoked through
+Launchpad's application authorizations.
