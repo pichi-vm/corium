@@ -238,13 +238,13 @@ The packaged executable is static and can be used as an initramfs init.
 ## Ubuntu PPA packages
 
 The `PPA source` workflow vendors the locked Rust dependencies on a
-GitHub-hosted runner after each push to `main`, then replaces `build/ppa`
-with that prepared source tree. It requests a Launchpad import, waits for
-that revision to arrive, and requests builds for the recipe's selected
-Ubuntu releases. This branch is generated: do not edit it or merge it back
-into `main`. No compilation or package signing happens in CI.
+GitHub-hosted runner after each push to `main`, then pushes the prepared
+source to `build/ppa` in Launchpad's `corium-ppa` repository and requests
+builds for the recipe's selected Ubuntu releases. This branch lives only
+on Launchpad and is generated: do not edit it or merge it back into `main`.
+No compilation or package signing happens in CI.
 
-Launchpad imports this repository and builds the source into
+Launchpad builds the source into
 [`ppa:nmccallum/pichi`](https://launchpad.net/~nmccallum/+archive/ubuntu/pichi).
 Configure the existing
 [Corium recipe](https://code.launchpad.net/~nmccallum/+recipe/corium)
@@ -252,7 +252,7 @@ with daily builds disabled and this recipe text:
 
 ```text
 # git-build-recipe format 0.4 deb-version {debversion}+{time}
-lp:pichi-vm build/ppa
+lp:~nmccallum/pichi-vm/+git/corium-ppa build/ppa
 ```
 
 Select the Ubuntu releases in the recipe and `amd64` and `arm64` in the
@@ -266,5 +266,6 @@ save its OAuth Authorization header as the repository Actions secret
 token, `PLAINTEXT` signature method, and encoded signature; CI adds a fresh
 timestamp and nonce to each request. See Launchpad's
 [authentication instructions](https://ubuntu.com/docs/launchpad/user/how-to/launchpad-web-signing/).
-No personal GPG key is needed. The API credential can be revoked through
-Launchpad's application authorizations.
+CI uses this credential to obtain a short-lived Git push token for
+`corium-ppa`; no separate Git secret or personal GPG key is needed. The API
+credential can be revoked through Launchpad's application authorizations.
