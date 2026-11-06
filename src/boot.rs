@@ -135,8 +135,14 @@ pub fn boot() -> Result<(), String> {
     let filesystems = fs::read_to_string("/proc/filesystems")
         .map_err(|e| format!("read filesystem drivers: {e}"))?;
     mount_root(&filesystems, |fstype| {
-        mount(source.as_str(), SYSROOT, fstype, MountFlags::RDONLY, None)
-            .map_err(std::io::Error::from)
+        mount(
+            source.as_str(),
+            SYSROOT,
+            fstype,
+            MountFlags::RDONLY | MountFlags::SILENT,
+            None,
+        )
+        .map_err(std::io::Error::from)
     })?;
     // The mount retains its own view, leaving the shared chain free for stacking.
     drop(view);
