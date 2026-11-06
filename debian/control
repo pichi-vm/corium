@@ -1,0 +1,16 @@
+Source: corium
+Section: admin
+Priority: optional
+Maintainer: Nathaniel McCallum <nathaniel@mccallum.life>
+Build-Depends: debhelper-compat (= 13), cargo (>= 1.89), rustc (>= 1.89)
+Standards-Version: 4.7.2
+Homepage: https://github.com/pichi-vm/corium
+Rules-Requires-Root: no
+
+Package: corium
+Architecture: amd64 arm64
+Depends: ${misc:Depends}
+Description: static initramfs initializer for Carapace roots
+ Corium discovers and mounts a read-only Carapace root filesystem, then
+ executes /sbin/init. Image builders install the static executable as
+ /init in their initramfs.

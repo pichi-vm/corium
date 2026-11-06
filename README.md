@@ -234,3 +234,26 @@ COPR prepares one vendored SRPM and builds the native RPMs. Its build ID
 is included in the RPM release so later builds of the same version supersede
 earlier packages. Until the first release, the RPM version is `0.1.0~dev`.
 The packaged executable is static and can be used as an initramfs init.
+
+## Ubuntu PPA packages
+
+The `PPA source` workflow vendors the locked Rust dependencies on a
+GitHub-hosted runner after each push to `main`, then replaces `build/ppa`
+with that prepared source tree. This branch is generated: do not edit it
+or merge it back into `main`. No compilation or signing happens in CI.
+
+Launchpad imports this repository and builds the source into
+[`ppa:nmccallum/pichi`](https://launchpad.net/~nmccallum/+archive/ubuntu/pichi).
+Configure the existing
+[Corium recipe](https://code.launchpad.net/~nmccallum/+recipe/corium-resolute)
+with daily builds enabled and this recipe text:
+
+```text
+# git-build-recipe format 0.4 deb-version {debversion}+{time}
+lp:pichi-vm build/ppa
+```
+
+Select the Ubuntu releases in the recipe and `amd64` and `arm64` in the
+PPA. One branch serves all releases; Launchpad adds the release suffix to
+each package version. Packages may lag behind `main` until the next daily
+build. No personal GPG key or Launchpad credential is needed in GitHub.
