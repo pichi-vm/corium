@@ -1,0 +1,33 @@
+#!/usr/bin/make -f
+
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+export CARGO_NET_OFFLINE = true
+export CARGO_TARGET_DIR = $(CURDIR)/target
+
+%:
+	dh $@ --buildsystem=none
+
+override_dh_auto_build:
+	cargo rustc --frozen --release --bin corium -- -C target-feature=+crt-static
+
+override_dh_auto_test:
+	readelf -l target/release/corium > target/program-headers.txt
+	readelf -d target/release/corium > target/dynamic-section.txt
+	! grep -q INTERP target/program-headers.txt
+	! grep -q NEEDED target/dynamic-section.txt
+
+override_dh_auto_install:
+	install -Dm0755 target/release/corium debian/corium/usr/bin/corium
+
+override_dh_installdocs:
+	dh_installdocs README.md LICENSE
+	find vendor -type f \( -iname 'license*' -o -iname 'licence*' -o \
+	    -iname 'copying*' -o -iname 'notice*' -o -iname 'copyright*' \) \
+	    -exec install -Dm0644 '{}' 'debian/corium/usr/share/doc/corium/dependency-licenses/{}' \;
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo-home
+
+# Cargo checksums include vendored Cargo.toml.orig files.
+override_dh_clean:
+	dh_clean -Xvendor/
