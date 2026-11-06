@@ -36,7 +36,7 @@ jobs:
         run: |
           : "${LAUNCHPAD_AUTHORIZATION:?Set the Launchpad API credential}"
           repository=https://api.launchpad.net/devel/~nmccallum/pichi-vm/+git/corium-packaging
-          recipe=https://api.launchpad.net/devel/~nmccallum/+recipe/corium-resolute
+          recipe=https://api.launchpad.net/devel/~nmccallum/+recipe/corium
           curl -fsS -H 'Cache-Control: no-cache' "$recipe" | jq -e '.recipe_text | contains("\nlp:pichi-vm build/ppa\n")'
           until curl --fail-with-body -sS -X POST "$repository/+code-import" -d ws.op=requestImport \
             -H "Authorization: $LAUNCHPAD_AUTHORIZATION, oauth_timestamp=\"$(date +%s)\", oauth_nonce=\"$RANDOM\"" \
