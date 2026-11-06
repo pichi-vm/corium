@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ppa-source
@@ -15,39 +15,32 @@ concurrency:
 jobs:
   source:
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           ref: main
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - name: Publish source for Launchpad
+      - name: Publish source and request builds
+        env:
+          LAUNCHPAD_AUTHORIZATION: ${{ secrets.LAUNCHPAD_AUTHORIZATION }}
         run: |
           mkdir -p .cargo
           cargo vendor --locked --versioned-dirs vendor > .cargo/config.toml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -f .cargo/config.toml vendor
-          git commit -m 'build: prepare PPA source [skip ci]'
-          git push --force origin HEAD:refs/heads/build/ppa
-      - name: Request Launchpad builds
-        env:
-          LAUNCHPAD_AUTHORIZATION: ${{ secrets.LAUNCHPAD_AUTHORIZATION }}
-        run: |
-          : "${LAUNCHPAD_AUTHORIZATION:?Set the Launchpad API credential}"
-          repository=https://api.launchpad.net/devel/~nmccallum/pichi-vm/+git/corium-packaging
-          recipe=https://api.launchpad.net/devel/~nmccallum/+recipe/corium
-          curl -fsS -H 'Cache-Control: no-cache' "$recipe" | jq -e '.recipe_text | contains("\nlp:pichi-vm build/ppa\n")'
-          until curl --fail-with-body -sS -X POST "$repository/+code-import" -d ws.op=requestImport \
-            -H "Authorization: $LAUNCHPAD_AUTHORIZATION, oauth_timestamp=\"$(date +%s)\", oauth_nonce=\"$RANDOM\"" \
-            -o "$RUNNER_TEMP/launchpad-import"; do
-            grep -q CodeImportAlreadyRunning "$RUNNER_TEMP/launchpad-import"
-            sleep 30
-          done
-          revision=$(git rev-parse HEAD)
-          until [ "$(git ls-remote https://git.launchpad.net/pichi-vm refs/heads/build/ppa | cut -f1)" = "$revision" ]; do
-            echo "Waiting for Launchpad to import $revision"
-            sleep 30
-          done
-          curl -fsS -X POST "$recipe" -d ws.op=performDailyBuild \
+          git commit -m 'build: prepare PPA source'
+          token=$(curl -fsS -X POST \
+            https://api.launchpad.net/devel/~nmccallum/pichi-vm/+git/corium-ppa \
+            -d ws.op=issueAccessToken \
+            -H "Authorization: $LAUNCHPAD_AUTHORIZATION, oauth_timestamp=\"$(date +%s)\", oauth_nonce=\"$RANDOM\"" | jq -er .)
+          echo "::add-mask::$token"
+          basic=$(printf 'nmccallum:%s' "$token" | base64 -w0)
+          echo "::add-mask::$basic"
+          git -c "http.extraHeader=Authorization: Basic $basic" push --force \
+            https://git.launchpad.net/~nmccallum/pichi-vm/+git/corium-ppa HEAD:refs/heads/build/ppa
+          curl -fsS -X POST https://api.launchpad.net/devel/~nmccallum/+recipe/corium \
+            -d ws.op=performDailyBuild \
             -H "Authorization: $LAUNCHPAD_AUTHORIZATION, oauth_timestamp=\"$(date +%s)\", oauth_nonce=\"$RANDOM\""
