@@ -247,7 +247,7 @@ into `main`. No compilation or package signing happens in CI.
 Launchpad imports this repository and builds the source into
 [`ppa:nmccallum/pichi`](https://launchpad.net/~nmccallum/+archive/ubuntu/pichi).
 Configure the existing
-[Corium recipe](https://code.launchpad.net/~nmccallum/+recipe/corium-resolute)
+[Corium recipe](https://code.launchpad.net/~nmccallum/+recipe/corium)
 with daily builds disabled and this recipe text:
 
 ```text
