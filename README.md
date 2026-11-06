@@ -225,3 +225,12 @@ Version 0.2 removes the former library items `CORIUM_ROOT_OK`, `CORIUM_PIVOT`,
 `boot` and `init_logging` for the PID 1 binary. External boot tests must
 provide a real init and verify its handoff, rather than expect Corium to list
 files and power off successfully when init is absent.
+
+## COPR packages
+
+Pushes to `main` trigger the existing COPR webhook for
+[`npmccallum/pichi`](https://copr.fedorainfracloud.org/coprs/npmccallum/pichi/).
+COPR prepares one vendored SRPM and builds the native RPMs. Its build ID
+is included in the RPM release so later builds of the same version supersede
+earlier packages. Until the first release, the RPM version is `0.1.0~dev`.
+The packaged executable is static and can be used as an initramfs init.
