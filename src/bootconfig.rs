@@ -223,6 +223,7 @@ mod tests {
         for key in [
             "corium",
             "corium.rooot",
+            "corium.overlay",
             "corium.root.extra",
             "corium.log.extra",
         ] {

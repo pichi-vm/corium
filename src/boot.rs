@@ -10,16 +10,16 @@ use carapace::{Assemble, DevId};
 use devmap_core::Span;
 use devmap_linux::{Control, Table, targets::Linear};
 use rustix::mount::{
-    MountFlags, MountPropagationFlags, UnmountFlags, mount, mount_change, unmount,
+    MountFlags, MountPropagationFlags, UnmountFlags, mount, mount_change, mount_move, unmount,
 };
 
 use crate::progress::{Phase, Progress};
 
 const SYSROOT: &str = "/sysroot";
 
-/// A read-only filesystem view of a reusable Carapace device.
+/// A filesystem view of a block-device extent, retained by its mount.
 #[derive(Debug)]
-struct MountView {
+pub(crate) struct MountView {
     control: Control,
     id: DevId,
 }
@@ -45,6 +45,22 @@ impl TryFrom<&fs::File> for MountView {
         } else {
             (0, carapace::ZERO_SIZE_SECTORS)
         };
+        Self::new(source, start, sectors, "corium-root", true)
+    }
+}
+
+impl MountView {
+    pub(crate) fn path(&self) -> String {
+        format!("/dev/dm-{}", self.id.minor())
+    }
+
+    pub(crate) fn new(
+        source: &fs::File,
+        start: u64,
+        sectors: u64,
+        name: &str,
+        readonly: bool,
+    ) -> std::io::Result<Self> {
         let control = Control::open()?;
         let target = Linear {
             device: source.metadata()?.try_into()?,
@@ -58,10 +74,10 @@ impl TryFrom<&fs::File> for MountView {
         // Corium mounts one root as PID 1. A name collision fails rather than
         // taking ownership of an existing mapping.
         let view = Self {
-            id: control.create("corium-root")?,
+            id: control.create(name)?,
             control,
         };
-        view.control.load(view.id, table, true)?;
+        view.control.load(view.id, table, readonly)?;
         view.control.suspend(view.id, false)?;
         Ok(view)
     }
@@ -77,9 +93,9 @@ impl Drop for MountView {
     }
 }
 
-/// Establish the read-only root and execute /sbin/init. Returns on error or requested shutdown.
-/// Must run as PID 1 in an initramfs; no temporary mounts or descriptors are
-/// passed to the real init.
+/// Establish the verified root, prepare optional persistent /var, and execute /sbin/init.
+/// Returns on error or requested shutdown. Must run as PID 1 in an initramfs.
+/// Only declared state mounts survive handoff; temporary API mounts do not.
 ///
 /// # Errors
 /// Returns an operator-facing diagnostic on non-PID-1 invocation or failure
@@ -129,12 +145,12 @@ pub fn boot() -> Result<(), String> {
         return Ok(());
     }
     let view = MountView::try_from(&device).map_err(|e| format!("create root mount view: {e}"))?;
-    let source = format!("/dev/dm-{}", view.id.minor());
+    let source = view.path();
     log::debug!(target: "corium", device = source.as_str(); "root device assembled");
     fs::create_dir_all(SYSROOT).map_err(|e| format!("create {SYSROOT}: {e}"))?;
     let filesystems = fs::read_to_string("/proc/filesystems")
         .map_err(|e| format!("read filesystem drivers: {e}"))?;
-    mount_root(&filesystems, |fstype| {
+    let fstype = mount_root(&filesystems, |fstype| {
         mount(
             source.as_str(),
             SYSROOT,
@@ -148,12 +164,22 @@ pub fn boot() -> Result<(), String> {
     drop(view);
     drop(device);
 
+    let bindings =
+        crate::state::bindings(Path::new(SYSROOT)).map_err(|e| format!("read /var/.bind: {e}"))?;
+
     if progress.complete(Phase::Mounted) {
         return Ok(());
     }
-    pivot()?;
+    pivot(bindings.is_some())?;
     if progress.complete(Phase::Pivoted) {
         return Ok(());
+    }
+    if let Some(entries) = bindings {
+        crate::state::mount_var(fstype, &entries)
+            .map_err(|e| format!("prepare persistent /var: {e}"))?;
+        for target in ["/proc", "/sys", "/dev"] {
+            unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
+        }
     }
     // Failed exec retains the console for the fatal diagnostic.
     let error = std::process::Command::new("/sbin/init")
@@ -218,7 +244,7 @@ fn require_kernel(release: &str) -> Result<(), String> {
 fn mount_root(
     filesystems: &str,
     mut attempt: impl FnMut(&str) -> std::io::Result<()>,
-) -> Result<(), String> {
+) -> Result<&str, String> {
     let mut errors = Vec::new();
     for line in filesystems.lines() {
         let mut fields = line.split_whitespace();
@@ -232,7 +258,7 @@ fn mount_root(
         match attempt(fstype) {
             Ok(()) => {
                 log::debug!(target: "corium", filesystem = fstype; "root filesystem mounted");
-                return Ok(());
+                return Ok(fstype);
             }
             Err(error) => {
                 log::trace!(target: "corium", filesystem = fstype, error:% = error; "root mount attempt failed");
@@ -250,7 +276,7 @@ fn mount_root(
     }
 }
 
-fn pivot() -> Result<(), String> {
+fn pivot(keep_api: bool) -> Result<(), String> {
     // pivot_root requires private mounts. Do this before detach so no unmount
     // can propagate outside this tree.
     mount_change(
@@ -259,7 +285,12 @@ fn pivot() -> Result<(), String> {
     )
     .map_err(|e| format!("make mounts private: {e}"))?;
     for target in ["/proc", "/sys", "/dev"] {
-        unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
+        if keep_api {
+            mount_move(target, format!("{SYSROOT}{target}"))
+                .map_err(|e| format!("move {target} into root: {e}"))?;
+        } else {
+            unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
+        }
     }
     std::env::set_current_dir(SYSROOT).map_err(|e| format!("chdir {SYSROOT}: {e}"))?;
     // Linux 7.0+ permits pivoting out of initramfs. Stacking the old root on

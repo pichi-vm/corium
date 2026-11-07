@@ -1,8 +1,9 @@
 # Corium
 
-Corium is a minimal Linux initramfs PID 1. Its sole handoff resource is a
-mounted, read-only Carapace root filesystem. It executes `/sbin/init`; the real
-init (systemd) owns all subsequent operating-system setup.
+Corium is a minimal Linux initramfs PID 1. It mounts a verified Carapace root
+filesystem and executes `/sbin/init`. The root remains read-only; an
+optional state disk provides persistent writable `/var` with image-owned
+read-only exceptions.
 
 ## Image-builder contract
 
@@ -42,11 +43,13 @@ init (systemd) owns all subsequent operating-system setup.
    available as another consumer's origin.
    Read `/proc/filesystems` and try the listed non-`nodev` drivers in order
    until the view mounts read-only. There is no hardcoded filesystem list.
-6. Make mount propagation recursively private, then detach the temporary API
-   mounts. Use `pivot_root(".", ".")` and detach the
-   old initramfs, relying on Linux 7.0+'s rootfs semantics. There is no recursive
-   deletion, writable old-root directory, or legacy-kernel fallback.
-7. Execute `/sbin/init` with every received process argument after `argv[0]`,
+6. Read optional `/var/.bind` from the verified image.
+7. Make mount propagation recursively private. For persistent state setup,
+   move temporary API mounts into the image; otherwise detach them. Use
+   `pivot_root(".", ".")` and detach the old initramfs, relying on Linux 7.0+
+   rootfs semantics. Prepare persistent `/var` as described below, then detach
+   the temporary API mounts. There is no writable old-root directory.
+8. Execute `/sbin/init` with every received process argument after `argv[0]`,
    preserving their bytes, order, and boundaries. Set `argv[0]` to `/sbin/init`
    and inherit the environment. Console descriptors close on successful exec,
    but remain available for a fatal diagnostic if the handoff fails.
@@ -57,15 +60,52 @@ performing init duties. Kernel and real-init output are outside Corium's
 logging policy. Failures before the console is established may have no
 Corium diagnostic if the kernel supplied no usable stderr.
 
-Corium does not create `/run`, transfer API mounts to the new root, enforce
-a JSON boot contract, configure networking or secondary volumes, provide a
-writable root layer, or run as a post-boot service. It has no systemd generator,
-init-path override, directory listing, or success-marker mode.
+The real init owns networking and subsequent operating-system setup. Corium
+does not run as a post-boot service.
 
 The pinned Carapace API currently wraps missing-partition errors as
 `InvalidData`. The discovery adapter recognizes that specific diagnostic;
 other validation errors are not retried. Recheck this adapter when updating
 Carapace.
+
+## Persistent /var
+
+An image containing `/var/.bind` opts into persistent `/var`. Attach exactly
+one writable whole virtio disk and include `/usr/sbin/mkfs.<root-filesystem-type>`
+with its libraries in the verified image. The initramfs needs only Corium and
+kernel modules. The image must contain real `/tmp`, `/var`, `/dev`, `/proc`
+and `/sys` directories.
+
+Each nonempty line in `/var/.bind` names a file or directory relative to `/var`
+that must remain read-only and come from the current image. For example:
+
+```text
+lib/dpkg
+lib/shells.state
+```
+
+An empty manifest permits an entirely writable `/var`. Absolute paths, dot
+components, symlinks, overlapping entries and missing sources are errors.
+Without the manifest, Corium leaves writable disks untouched.
+
+After pivot, Corium creates GPT and formats one aligned partition only on a
+fully blank disk, using the image formatter as a child. The state partition
+type is `32a2f055-1a43-44b2-ab7a-483ff5f13481`. Existing state is reused;
+unknown, damaged or interrupted initialization fails without reformatting.
+Blankness checking reads the whole device; resizing is not supported.
+
+Corium temporarily mounts state on `/tmp`, creates mount targets under its
+`var` directory, and attaches declared image paths read-only. It recursively
+binds that directory onto `/var` and detaches staging before starting init.
+The image's tmpfiles rules should initialize missing mutable directories/files
+without replacing retained data. Corium does not interpret tmpfiles rules.
+
+Root, `/etc` and `/usr` remain read-only. Between boots, replacing Carapace
+refreshes declared image paths while retaining other instance data. An added
+binding hides existing state at that path without deleting it; removing the
+binding exposes that state again. Incompatible application data migrations are
+not automatic. Mutable state is not covered by image verification/attestation.
+Hiding the staging mount does not hide the device from privileged guest code.
 
 ## Boot configuration
 

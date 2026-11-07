@@ -93,6 +93,42 @@ fn service(root: &Path, validate: bool) {
         "[Unit]\nDescription=Validate Corium root\nDefaultDependencies=no\nSuccessAction=poweroff-immediate\nFailureAction=poweroff-immediate\n[Service]\nType=oneshot\n{check}ExecStart=/usr/bin/echo {READY}\nStandardOutput=tty\nStandardError=tty\nTTYPath=/dev/console\n")).unwrap();
 }
 
+pub(crate) fn state_root(h: &Harness) -> PathBuf {
+    let root = root(h, "state-var-tree");
+    for name in ["sh", "cat", "mkdir", "rm", "chmod", "stat", "findmnt"] {
+        let source = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|dir| dir.join(name))
+            .find(|path| path.is_file())
+            .unwrap();
+        fs::copy(&source, root.join("usr/bin").join(name)).unwrap();
+        libraries(&source, &root);
+    }
+    executable("/usr/sbin/mkfs.ext4", &root);
+    executable("/usr/bin/systemd-tmpfiles", &root);
+    fs::create_dir_all(root.join("usr/lib/tmpfiles.d")).unwrap();
+    fs::write(root.join("usr/lib/tmpfiles.d/state-test.conf"),
+        "d /var/lib/service 0700 0 0 -\nf /var/lib/service/data 0600 0 0 - seed\nL /var/run - - - - ../run\n").unwrap();
+    fs::write(root.join("etc/systemd/system/systemd-tmpfiles-setup.service"),
+        "[Unit]\nDefaultDependencies=no\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/state-test.conf\n").unwrap();
+    fs::create_dir_all(root.join("var/lib/image")).unwrap();
+    fs::write(root.join("var/.bind"), "lib/image\nlib/image-version\n").unwrap();
+    fs::write(root.join("var/lib/image/value"), "A\n").unwrap();
+    fs::write(root.join("var/lib/image-version"), "A\n").unwrap();
+    fs::write(root.join("etc/image-version"), "A\n").unwrap();
+    let check = root.join("usr/bin/check-state");
+    fs::write(&check, include_str!("state-var.sh")).unwrap();
+    fs::set_permissions(&check, fs::Permissions::from_mode(0o755)).unwrap();
+    let service = root.join("etc/systemd/system/boot-complete.service");
+    let text = fs::read_to_string(&service).unwrap()
+        .replace("DefaultDependencies=no", "DefaultDependencies=no\nRequires=systemd-tmpfiles-setup.service\nAfter=systemd-tmpfiles-setup.service")
+        .replace(
+        "ExecStart=/usr/bin/echo",
+        "ExecStart=/usr/bin/check-state\nExecStart=/usr/bin/echo",
+    );
+    fs::write(service, text).unwrap();
+    root
+}
+
 pub(crate) fn shared_root(h: &Harness) -> PathBuf {
     let root = root(h, "shared-root-tree");
     for name in [

@@ -411,3 +411,185 @@ fn large_root() {
     assert!(!result.output.contains("corium:"));
     h.outcome("large-handoff", "PASS", "");
 }
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn persistent_var() {
+    use std::io::{Seek, SeekFrom, Write};
+    let h = harness();
+    let _suite = h.suite("state-root");
+    let root = f::state_root(h);
+    let disk = f::base(h, &root, "state-base", false);
+    let original = support::hash(&disk.path);
+    let initrd = f::initramfs(h, "state", false, false, "none");
+    let config = format!("corium.root={}\ncorium.log=info", disk.root);
+    for sector in [512, 4096] {
+        let path = h.work.join(format!("state-{sector}.raw"));
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(64 * 1024 * 1024)
+            .unwrap();
+        for (attempt, expected) in [
+            ("first", "CORIUM-STATE-NEW"),
+            ("retained", "CORIUM-STATE-RETAINED"),
+            ("third", "CORIUM-STATE-RETAINED"),
+        ] {
+            let name = format!("state-{sector}-{attempt}");
+            let boot = h.boot_with_storage(
+                &name,
+                &initrd,
+                Some(&disk.path),
+                &config,
+                "",
+                &[(&path, sector)],
+            );
+            boot.expect(READY);
+            assert!(boot.output.contains(expected), "{}", boot.output);
+            h.outcome(&name, "PASS", expected);
+        }
+    }
+    // New declarations hide instance data; removing them exposes it unchanged.
+    for version in ["B", "C"] {
+        for path in [
+            "var/lib/image/value",
+            "var/lib/image-version",
+            "etc/image-version",
+        ] {
+            std::fs::write(root.join(path), format!("{version}\n")).unwrap();
+        }
+        std::fs::write(root.join("var/local-metadata"), "image\n").unwrap();
+        std::fs::write(
+            root.join("var/.bind"),
+            if version == "B" {
+                "lib/image\nlib/image-version\nlocal-metadata\n"
+            } else {
+                "lib/image\nlib/image-version\n"
+            },
+        )
+        .unwrap();
+        let name = format!("state-replacement-{version}");
+        let replacement = f::base(h, &root, &name, false);
+        let digest = support::hash(&replacement.path);
+        let boot = h.boot_with_storage(
+            &name,
+            &initrd,
+            Some(&replacement.path),
+            &format!("corium.root={}", replacement.root),
+            "",
+            &[(&h.work.join("state-512.raw"), 512)],
+        );
+        boot.expect(READY);
+        assert!(
+            boot.output.contains("CORIUM-STATE-RETAINED"),
+            "{}",
+            boot.output
+        );
+        assert_eq!(digest, support::hash(&replacement.path));
+        h.outcome(
+            &name,
+            "PASS",
+            "updated image binds and retained tmpfiles state",
+        );
+    }
+    let boot = h.boot("state-missing", &initrd, Some(&disk.path), &config);
+    boot.expect("persistent /var needs exactly one writable whole virtio disk; found 0");
+    let first = h.work.join("state-512.raw");
+    let second = h.work.join("state-4096.raw");
+    let storage = [(&*first, 512), (&*second, 4096)];
+    let before = [support::hash(&first), support::hash(&second)];
+    let boot = h.boot_with_storage(
+        "state-ambiguous",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "",
+        &storage,
+    );
+    boot.expect("persistent /var needs exactly one writable whole virtio disk; found 2");
+    let immutable_root = f::root(h, "immutable-with-storage-tree");
+    let immutable = f::base(h, &immutable_root, "immutable-with-storage-base", false);
+    let boot = h.boot_with_storage(
+        "immutable-with-storage",
+        &initrd,
+        Some(&immutable.path),
+        &format!("corium.root={}", immutable.root),
+        "",
+        &storage,
+    );
+    boot.expect(READY);
+    assert_eq!(before, [support::hash(&first), support::hash(&second)]);
+
+    let unknown = h.work.join("unknown-state.raw");
+    let mut file = std::fs::File::create(&unknown).unwrap();
+    file.set_len(64 * 1024 * 1024).unwrap();
+    file.seek(SeekFrom::Start(63 * 1024 * 1024)).unwrap();
+    file.write_all(b"do not erase").unwrap();
+    drop(file);
+    let before = support::hash(&unknown);
+    let boot = h.boot_with_storage(
+        "state-unknown",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "",
+        &[(&unknown, 512)],
+    );
+    boot.expect("state disk is not blank");
+    assert_eq!(before, support::hash(&unknown));
+    // A formatter that exists but fails must also leave a non-retriable disk.
+    std::fs::write(root.join("usr/sbin/mkfs.ext4"), "#!/usr/bin/sh\nexit 7\n").unwrap();
+    let failed = f::base(h, &root, "failed-formatter", false);
+    let failed_state = h.work.join("failed-formatter.raw");
+    std::fs::File::create(&failed_state)
+        .unwrap()
+        .set_len(64 * 1024 * 1024)
+        .unwrap();
+    let boot = h.boot_with_storage(
+        "state-failed-formatter",
+        &initrd,
+        Some(&failed.path),
+        &format!("corium.root={}", failed.root),
+        "",
+        &[(&failed_state, 512)],
+    );
+    boot.expect("mkfs.ext4 failed");
+    let failed_hash = support::hash(&failed_state);
+    let boot = h.boot_with_storage(
+        "state-failed-retry",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "",
+        &[(&failed_state, 512)],
+    );
+    boot.expect("refusing to reformat");
+    assert_eq!(failed_hash, support::hash(&failed_state));
+    std::fs::remove_file(root.join("usr/sbin/mkfs.ext4")).unwrap();
+    let missing = f::base(h, &root, "missing-formatter", false);
+    let incomplete = h.work.join("incomplete-state.raw");
+    std::fs::File::create(&incomplete)
+        .unwrap()
+        .set_len(64 * 1024 * 1024)
+        .unwrap();
+    let boot = h.boot_with_storage(
+        "state-missing-formatter",
+        &initrd,
+        Some(&missing.path),
+        &format!("corium.root={}", missing.root),
+        "",
+        &[(&incomplete, 512)],
+    );
+    boot.expect("execute mkfs.ext4");
+    let before = support::hash(&incomplete);
+    let boot = h.boot_with_storage(
+        "state-interrupted",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "",
+        &[(&incomplete, 512)],
+    );
+    boot.expect("refusing to reformat");
+    assert_eq!(before, support::hash(&incomplete));
+    assert_eq!(original, support::hash(&disk.path));
+}
