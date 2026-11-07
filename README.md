@@ -71,8 +71,9 @@ Carapace.
 
 ## Persistent instance state
 
-A `/var/.bind` file in the image enables persistent `/var`. Without it, Corium
-leaves writable disks untouched. Root, `/etc` and `/usr` remain read-only.
+A `/var/.bind` file enables persistent `/var`, `/home`, `/root` and `/srv`
+on the same state filesystem. Without it, Corium leaves writable disks untouched.
+Root, `/etc` and `/usr` remain read-only.
 
 List image-owned files or directories in `/var/.bind`, one relative path beneath
 `/var` per line (for example `lib/dpkg`). These paths remain read-only and come
@@ -94,11 +95,15 @@ that formatter and its libraries in the root image. Initialization completes
 within the first boot. Interrupted initialization is not retried by formatting;
 existing filesystem failures are fatal.
 
-The image must provide real `/tmp` and `/var` directories. Corium temporarily
-mounts the state filesystem at `/tmp`, binds its `var` directory onto `/var`,
-and detaches staging before init. Init remains responsible for runtime mounts
-and tmpfiles initialization. Existing state is retained; undeclared image
-`/var` contents are hidden. This does not authenticate state or hide the disk from guest root.
+The image must provide real `/tmp`, `/var`, `/home`, `/root` and `/srv` directories.
+Corium temporarily mounts state at `/tmp`, binds each matching state directory
+onto its image mountpoint, and detaches staging before init. Init remains
+responsible for runtime mounts and tmpfiles initialization. Image contents of
+these four directories are hidden except declared `/var` bindings.
+New state directories inherit their image directory’s ownership and permissions;
+existing instance permissions and contents are retained. Initialize other
+required contents with tmpfiles. This does not authenticate state or hide the
+disk from guest root.
 
 ## Boot configuration
 

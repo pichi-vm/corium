@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Advanced Micro Devices, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Persistent /var with image-owned read-only bind mounts.
+//! Persistent instance directories with image-owned read-only /var bindings.
 
 mod disk;
 
@@ -9,11 +9,14 @@ use crate::boot::MountView;
 use gpt::disk::LogicalBlockSize;
 use rustix::mount::{MountFlags, UnmountFlags, mount, mount_bind, mount_bind_recursive, unmount};
 use std::io::{Seek, SeekFrom};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, chown};
 use std::{
     fs, io,
     path::Path,
     process::{Command, Stdio},
 };
+
+const DIRECTORIES: [&str; 4] = ["var", "home", "root", "srv"];
 
 fn device() -> io::Result<fs::File> {
     let mut candidates = Vec::new();
@@ -33,7 +36,7 @@ fn device() -> io::Result<fs::File> {
     }
     if candidates.len() != 1 {
         return Err(io::Error::other(format!(
-            "persistent /var needs exactly one writable whole virtio disk; found {}",
+            "persistent state needs exactly one writable whole virtio disk; found {}",
             candidates.len()
         )));
     }
@@ -54,7 +57,7 @@ pub(crate) fn bindings(root: &Path) -> io::Result<Option<Vec<String>>> {
     if !metadata.is_file() {
         return Err(io::Error::other("/var/.bind must be a regular file"));
     }
-    for directory in ["var", "tmp", "dev", "proc", "sys"] {
+    for directory in DIRECTORIES.into_iter().chain(["tmp", "dev", "proc", "sys"]) {
         directory_type(&root.join(directory))?;
     }
     let entries = parse(&fs::read_to_string(manifest)?)?;
@@ -131,6 +134,19 @@ fn directory(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Initialize only missing state directories; retain existing instance metadata.
+fn state_directory(image: &Path, state: &Path) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(image)?;
+    match fs::DirBuilder::new().mode(metadata.mode()).create(state) {
+        Ok(()) => {
+            chown(state, Some(metadata.uid()), Some(metadata.gid()))?;
+            fs::set_permissions(state, metadata.permissions())
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => directory_type(state),
+        Err(error) => Err(error),
+    }
+}
+
 /// Create mount targets without following symlinks or replacing existing data.
 fn target(root: &Path, entry: &str, is_directory: bool) -> io::Result<()> {
     let mut path = root.to_owned();
@@ -187,7 +203,7 @@ fn format(fstype: &str, path: &str) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn mount_var(fstype: &str, entries: &[String]) -> io::Result<()> {
+pub(crate) fn mount_state(fstype: &str, entries: &[String]) -> io::Result<()> {
     let mut device = device()?;
     let size = device.seek(SeekFrom::End(0))?;
     let sector = match rustix::fs::ioctl_blksszget(&device)? {
@@ -226,7 +242,9 @@ pub(crate) fn mount_var(fstype: &str, entries: &[String]) -> io::Result<()> {
         ))
     })?;
     drop(view);
-    directory(Path::new("/tmp/var"))?;
+    for name in DIRECTORIES {
+        state_directory(&Path::new("/").join(name), &Path::new("/tmp").join(name))?;
+    }
     for entry in entries {
         let source = Path::new("/var").join(entry);
         target(
@@ -239,8 +257,10 @@ pub(crate) fn mount_var(fstype: &str, entries: &[String]) -> io::Result<()> {
         mount_bind(&source, Path::new("/tmp/var").join(entry))
             .map_err(|error| io::Error::other(format!("bind /var/{entry}: {error}")))?;
     }
-    mount_bind_recursive("/tmp/var", "/var")?;
-    // Detach staging submounts as well; the final /var retains its own references.
+    for name in DIRECTORIES {
+        mount_bind_recursive(Path::new("/tmp").join(name), Path::new("/").join(name))?;
+    }
+    // Detach staging submounts as well; the final mounts retain their own references.
     unmount("/tmp", UnmountFlags::DETACH)?;
     Ok(())
 }
@@ -302,11 +322,20 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         assert!(bindings(root).unwrap().is_none());
-        for path in ["var", "tmp", "dev", "proc", "sys"] {
+        for path in DIRECTORIES.into_iter().chain(["tmp", "dev", "proc", "sys"]) {
             fs::create_dir(root.join(path)).unwrap();
         }
         fs::write(root.join("var/.bind"), "").unwrap();
         assert_eq!(bindings(root).unwrap(), Some(vec![]));
+        for name in ["home", "root", "srv"] {
+            let path = root.join(name);
+            fs::remove_dir(&path).unwrap();
+            assert!(bindings(root).is_err());
+            symlink("var", &path).unwrap();
+            assert!(bindings(root).is_err());
+            fs::remove_file(&path).unwrap();
+            fs::create_dir(&path).unwrap();
+        }
         fs::write(root.join("var/.bind"), "missing").unwrap();
         assert!(bindings(root).is_err());
         fs::write(root.join("var/value"), "metadata").unwrap();
@@ -323,6 +352,33 @@ mod tests {
         fs::remove_file(root.join("var/.bind")).unwrap();
         symlink("value", root.join("var/.bind")).unwrap();
         assert!(bindings(root).is_err());
+    }
+
+    #[test]
+    fn state_directories_inherit_image_metadata_only_when_new() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let image = temp.path().join("image");
+        let state = temp.path().join("state");
+        fs::create_dir(&image).unwrap();
+        fs::set_permissions(&image, fs::Permissions::from_mode(0o700)).unwrap();
+        state_directory(&image, &state).unwrap();
+        let metadata = fs::metadata(&state).unwrap();
+        assert_eq!(metadata.mode() & 0o7777, 0o700);
+        assert_eq!(metadata.uid(), fs::metadata(&image).unwrap().uid());
+        assert_eq!(metadata.gid(), fs::metadata(&image).unwrap().gid());
+        fs::write(state.join("retained"), "keep").unwrap();
+        fs::set_permissions(&state, fs::Permissions::from_mode(0o750)).unwrap();
+        state_directory(&image, &state).unwrap();
+        assert_eq!(fs::metadata(&state).unwrap().mode() & 0o7777, 0o750);
+        assert_eq!(fs::read_to_string(state.join("retained")).unwrap(), "keep");
+        fs::remove_dir_all(&state).unwrap();
+        symlink(&image, &state).unwrap();
+        assert!(state_directory(&image, &state).is_err());
+        fs::remove_file(&state).unwrap();
+        fs::write(&state, "keep").unwrap();
+        assert!(state_directory(&image, &state).is_err());
+        assert_eq!(fs::read_to_string(&state).unwrap(), "keep");
     }
 
     #[test]

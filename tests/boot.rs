@@ -497,7 +497,7 @@ fn preformatted_var() {
         "",
         &[(&unknown, 512)],
     );
-    result.expect("prepare persistent /var:");
+    result.expect("prepare persistent state:");
     assert_eq!(support::hash(&unknown), before);
     h.outcome("unknown-state", "PASS", "unrecognized disk unchanged");
     // A recognized GPT must not authorize replacing a damaged filesystem.
