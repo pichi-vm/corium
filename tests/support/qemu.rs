@@ -103,6 +103,18 @@ impl Harness {
         config: &str,
         options: &str,
     ) -> Boot {
+        self.boot_with_storage(name, initrd, disk, config, options, &[])
+    }
+
+    pub(crate) fn boot_with_storage(
+        &self,
+        name: &str,
+        initrd: &Path,
+        disk: Option<&Path>,
+        config: &str,
+        options: &str,
+        storage: &[(&Path, u32)],
+    ) -> Boot {
         let mut bytes = fs::read(initrd).unwrap();
         if !config.is_empty() {
             bytes.resize(bytes.len().next_multiple_of(4), 0);
@@ -169,6 +181,10 @@ impl Harness {
                 "file={},format=raw,if=virtio,readonly=on,cache=writeback",
                 disk.display()
             ));
+        }
+        for (index, (path, sector)) in storage.iter().enumerate() {
+            command.args(["-drive", &format!("file={},format=raw,if=none,id=state{index},cache=writeback", path.display()),
+                "-device", &format!("virtio-blk-pci,drive=state{index},logical_block_size={sector},physical_block_size={sector}")]);
         }
         fs::write(
             self.work.join(format!("{name}.command.txt")),

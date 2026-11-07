@@ -426,3 +426,98 @@ fn large_root() {
     assert!(!result.output.contains("corium:"));
     h.outcome("large-handoff", "PASS", "");
 }
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn preformatted_var() {
+    let h = harness();
+    let _suite = h.suite("preformatted-var");
+    let root = f::persistent_var_root(h);
+    let disk = f::base(h, &root, "persistent-var", false);
+    let initrd = f::initramfs(h, "persistent-var", false, false, "none");
+    let config = format!("corium.root={}", disk.root);
+    let original = support::hash(&disk.path);
+    for sector in [512, 4096] {
+        let state = f::existing_state(h, sector);
+        for (boot, marker) in [(1, "NEW"), (2, "RETAINED"), (3, "RETAINED")] {
+            let name = format!("state-{sector}-{boot}");
+            let result = h.boot_with_storage(
+                &name,
+                &initrd,
+                Some(&disk.path),
+                &config,
+                "",
+                &[(&state, sector)],
+            );
+            result.expect(READY);
+            assert!(result.output.contains(&format!("CORIUM-STATE-{marker}")));
+            h.outcome(&name, "PASS", marker);
+        }
+    }
+    let missing = h.boot("missing-state", &initrd, Some(&disk.path), &config);
+    missing.expect("exactly one writable whole virtio disk; found 0");
+    h.outcome("missing-state", "PASS", "");
+    let first = h.work.join("state-512.gpt");
+    let second = h.work.join("state-4096.gpt");
+    let hashes = [support::hash(&first), support::hash(&second)];
+    let ambiguous = h.boot_with_storage(
+        "ambiguous-state",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "",
+        &[(&first, 512), (&second, 4096)],
+    );
+    ambiguous.expect("exactly one writable whole virtio disk; found 2");
+    h.outcome("ambiguous-state", "PASS", "");
+    let ordinary_root = f::root(h, "ordinary-root");
+    let ordinary = f::base(h, &ordinary_root, "ordinary", false);
+    let untouched = h.boot_with_storage(
+        "no-state-policy",
+        &initrd,
+        Some(&ordinary.path),
+        &format!("corium.root={}", ordinary.root),
+        "",
+        &[(&first, 512), (&second, 4096)],
+    );
+    untouched.expect(READY);
+    assert_eq!([support::hash(&first), support::hash(&second)], hashes);
+    h.outcome("no-state-policy", "PASS", "attached state disks unchanged");
+    let unknown = h.work.join("unknown-state.raw");
+    let mut file = fs::File::create(&unknown).unwrap();
+    file.set_len(8 * 1024 * 1024).unwrap();
+    file.write_all(b"user data").unwrap();
+    drop(file);
+    let before = support::hash(&unknown);
+    let result = h.boot_with_storage(
+        "unknown-state",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "",
+        &[(&unknown, 512)],
+    );
+    result.expect("prepare persistent /var:");
+    assert_eq!(support::hash(&unknown), before);
+    h.outcome("unknown-state", "PASS", "unrecognized disk unchanged");
+    // A recognized GPT must not authorize replacing a damaged filesystem.
+    let mut damaged = OpenOptions::new().write(true).open(&first).unwrap();
+    damaged
+        .seek(SeekFrom::Start(1024 * 1024 + 1024 + 56))
+        .unwrap();
+    damaged.write_all(&[0, 0]).unwrap();
+    drop(damaged);
+    let before = support::hash(&first);
+    let result = h.boot_with_storage(
+        "damaged-filesystem",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "",
+        &[(&first, 512)],
+    );
+    result.expect("mount state as ext4:");
+    assert_eq!(support::hash(&first), before);
+    h.outcome("damaged-filesystem", "PASS", "filesystem not reformatted");
+    assert_eq!(support::hash(&disk.path), original);
+}
