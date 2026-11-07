@@ -432,7 +432,7 @@ fn large_root() {
 fn preformatted_var() {
     let h = harness();
     let _suite = h.suite("preformatted-var");
-    let root = f::persistent_var_root(h);
+    let root = f::persistent_var_root(h, "persistent-var-root");
     let disk = f::base(h, &root, "persistent-var", false);
     let initrd = f::initramfs(h, "persistent-var", false, false, "none");
     let config = format!("corium.root={}", disk.root);
@@ -520,4 +520,85 @@ fn preformatted_var() {
     assert_eq!(support::hash(&first), before);
     h.outcome("damaged-filesystem", "PASS", "filesystem not reformatted");
     assert_eq!(support::hash(&disk.path), original);
+}
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn initialize_state() {
+    let h = harness();
+    let _suite = h.suite("initialize-state");
+    let root = f::persistent_var_root(h, "initial-state-root");
+    f::executable("/usr/sbin/mkfs.ext4", &root);
+    let disk = f::base(h, &root, "initial-state", false);
+    let initrd = f::initramfs(h, "initial-state", false, false, "none");
+    let config = format!("corium.root={}", disk.root);
+    let original = support::hash(&disk.path);
+    for sector in [512, 4096] {
+        let state = h.work.join(format!("blank-state-{sector}.raw"));
+        fs::File::create(&state)
+            .unwrap()
+            .set_len(64 * 1024 * 1024)
+            .unwrap();
+        for (number, marker) in [(1, "NEW"), (2, "RETAINED")] {
+            let name = format!("initialize-{sector}-{number}");
+            let result = h.boot_with_storage(
+                &name,
+                &initrd,
+                Some(&disk.path),
+                &config,
+                "",
+                &[(&state, sector)],
+            );
+            result.expect(READY);
+            assert!(result.output.contains(&format!("CORIUM-STATE-{marker}")));
+            h.outcome(&name, "PASS", marker);
+        }
+    }
+    assert_eq!(support::hash(&disk.path), original);
+    let root = f::persistent_var_root(h, "failed-formatter-root");
+    for failure in ["missing", "failed"] {
+        if failure == "failed" {
+            use std::os::unix::fs::PermissionsExt;
+            fs::create_dir_all(root.join("usr/sbin")).unwrap();
+            let formatter = root.join("usr/sbin/mkfs.ext4");
+            fs::write(&formatter, "#!/usr/bin/sh\nexit 7\n").unwrap();
+            fs::set_permissions(formatter, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let disk = f::base(h, &root, &format!("formatter-{failure}"), false);
+        let config = format!("corium.root={}", disk.root);
+        let state = h.work.join(format!("formatter-{failure}.raw"));
+        fs::File::create(&state)
+            .unwrap()
+            .set_len(64 * 1024 * 1024)
+            .unwrap();
+        let result = h.boot_with_storage(
+            &format!("formatter-{failure}"),
+            &initrd,
+            Some(&disk.path),
+            &config,
+            "",
+            &[(&state, 512)],
+        );
+        result.expect(if failure == "missing" {
+            "execute mkfs.ext4:"
+        } else {
+            "mkfs.ext4 failed:"
+        });
+        let before = support::hash(&state);
+        let retry = h.boot_with_storage(
+            &format!("formatter-{failure}-retry"),
+            &initrd,
+            Some(&disk.path),
+            &config,
+            "",
+            &[(&state, 512)],
+        );
+        retry.expect("mount state as ext4:");
+        assert_eq!(support::hash(&state), before);
+        h.outcome(
+            &format!("formatter-{failure}"),
+            "PASS",
+            "failed initialization not reformatted",
+        );
+    }
 }

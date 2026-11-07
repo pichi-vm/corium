@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Advanced Micro Devices, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Persistent /var with an existing state filesystem.
+//! Persistent /var on a Corium state filesystem.
 
 mod disk;
 
@@ -9,7 +9,11 @@ use crate::boot::MountView;
 use gpt::disk::LogicalBlockSize;
 use rustix::mount::{MountFlags, UnmountFlags, mount, mount_bind, unmount};
 use std::io::{Seek, SeekFrom};
-use std::{fs, io, path::Path};
+use std::{
+    fs, io,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 fn device() -> io::Result<fs::File> {
     let mut candidates = Vec::new();
@@ -83,6 +87,31 @@ fn directory(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Execute the verified image's formatter after pivot, keeping Corium as PID 1.
+fn format(fstype: &str, path: &str) -> io::Result<()> {
+    let console = fs::OpenOptions::new().write(true).open("/dev/console")?;
+    let stderr = console.try_clone()?;
+    let status = Command::new(format!("/usr/sbin/mkfs.{fstype}"))
+        .arg(path)
+        .env_clear()
+        .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
+        .stdin(Stdio::null())
+        .stdout(console)
+        .stderr(stderr)
+        .status()
+        .map_err(|error| {
+            io::Error::other(format!(
+                "execute mkfs.{fstype}: {error}; state disk will not be reformatted"
+            ))
+        })?;
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "mkfs.{fstype} failed: {status}; state disk will not be reformatted"
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn mount_var(fstype: &str) -> io::Result<()> {
     let mut device = device()?;
     let size = device.seek(SeekFrom::End(0))?;
@@ -95,7 +124,7 @@ pub(crate) fn mount_var(fstype: &str) -> io::Result<()> {
             )));
         }
     };
-    let partition = disk::read(&mut device, size, sector)?;
+    let (partition, created) = disk::prepare(&mut device, size, sector)?;
     let factor = u64::from(sector) / 512;
     let view = MountView::new(
         &device,
@@ -105,6 +134,9 @@ pub(crate) fn mount_var(fstype: &str) -> io::Result<()> {
         false,
     )?;
     let source = view.path();
+    if created {
+        format(fstype, &source)?;
+    }
 
     mount(
         source.as_str(),

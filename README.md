@@ -75,11 +75,18 @@ An empty `/var/.bind` file in the image enables persistent `/var`. Without it,
 Corium leaves writable disks untouched. Nonempty manifests are not supported
 in this version. Root, `/etc` and `/usr` remain read-only.
 
-Attach exactly one writable whole virtio disk with a preformatted GPT state
-partition of type `32a2f055-1a43-44b2-ab7a-483ff5f13481`. Its filesystem must
-match the root filesystem. Corium accepts 512- and 4096-byte logical sectors,
+Attach exactly one writable whole virtio disk, either completely blank or
+containing a GPT state partition of type
+`32a2f055-1a43-44b2-ab7a-483ff5f13481`. Its filesystem must match the root
+filesystem. Corium accepts 512- and 4096-byte logical sectors,
 validates both GPT copies and requires one partition aligned to 1 MiB. It
-rejects blank, unknown or damaged storage without formatting or repairing it.
+rejects unknown or damaged storage without formatting or repairing it.
+
+For a wholly blank disk, Corium creates the state GPT and runs
+`/usr/sbin/mkfs.<root-filesystem>` from the verified image after pivot. Include
+that formatter and its libraries in the root image. Initialization completes
+within the first boot. Interrupted initialization is not retried by formatting;
+existing filesystem failures are fatal.
 
 The image must provide real `/tmp` and `/var` directories. Corium temporarily
 mounts the state filesystem at `/tmp`, binds its `var` directory onto `/var`,

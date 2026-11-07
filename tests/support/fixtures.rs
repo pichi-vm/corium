@@ -27,7 +27,7 @@ fn libraries(binary: &Path, root: &Path) {
         }
     }
 }
-fn executable(path: &str, root: &Path) {
+pub(crate) fn executable(path: &str, root: &Path) {
     copy(Path::new(path), root);
     libraries(Path::new(path), root);
 }
@@ -767,8 +767,8 @@ pub(crate) fn layered(h: &Harness, name: &str, depth: usize) -> (Disk, Vec<Scute
 }
 
 /// A systemd guest that checks immutable root and persistent /var across boots.
-pub(crate) fn persistent_var_root(h: &Harness) -> PathBuf {
-    let root = root(h, "persistent-var-root");
+pub(crate) fn persistent_var_root(h: &Harness, name: &str) -> PathBuf {
+    let root = root(h, name);
     for tool in ["sh", "cat", "chmod", "stat", "rm"] {
         executable(&format!("/usr/bin/{tool}"), &root);
     }
