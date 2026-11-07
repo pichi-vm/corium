@@ -10,7 +10,7 @@ use carapace::{Assemble, DevId};
 use devmap_core::Span;
 use devmap_linux::{Control, Table, targets::Linear};
 use rustix::mount::{
-    MountFlags, MountPropagationFlags, UnmountFlags, mount, mount_change, unmount,
+    MountFlags, MountPropagationFlags, UnmountFlags, mount, mount_change, mount_move, unmount,
 };
 
 use crate::progress::{Phase, Progress};
@@ -155,6 +155,9 @@ pub fn boot() -> Result<(), String> {
     if progress.complete(Phase::Pivoted) {
         return Ok(());
     }
+    for target in ["/proc", "/sys", "/dev"] {
+        unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
+    }
     // Failed exec retains the console for the fatal diagnostic.
     let error = std::process::Command::new("/sbin/init")
         .args(std::env::args_os().skip(1))
@@ -259,7 +262,8 @@ fn pivot() -> Result<(), String> {
     )
     .map_err(|e| format!("make mounts private: {e}"))?;
     for target in ["/proc", "/sys", "/dev"] {
-        unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
+        mount_move(target, format!("{SYSROOT}{target}"))
+            .map_err(|e| format!("move {target} into root: {e}"))?;
     }
     std::env::set_current_dir(SYSROOT).map_err(|e| format!("chdir {SYSROOT}: {e}"))?;
     // Linux 7.0+ permits pivoting out of initramfs. Stacking the old root on

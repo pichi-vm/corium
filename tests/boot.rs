@@ -124,6 +124,21 @@ fn boot_contract() {
     };
     let output = run("systemd-handoff", &config, READY);
     assert!(!output.contains("corium:"));
+    let missing_mount = f::root(h, "missing-api-mountpoint-root");
+    std::fs::remove_dir(missing_mount.join("sys")).unwrap();
+    let missing_mount = f::base(h, &missing_mount, "missing-api-mountpoint", false);
+    let boot = h.boot(
+        "missing-api-mountpoint",
+        &initrd,
+        Some(&missing_mount.path),
+        &format!("corium.root={}", missing_mount.root),
+    );
+    boot.expect("move /sys into root");
+    h.outcome(
+        "missing-api-mountpoint",
+        "PASS",
+        "missing mountpoint fails before pivot",
+    );
     let panic = h.boot_with_args(
         "panic-negative-control",
         &initrd,

@@ -23,8 +23,9 @@ init (systemd) owns all subsequent operating-system setup.
   may contain a filesystem directly or a GPT with one eligible root partition
   for the guest architecture. Corium detects the layout from the GPT signature.
 - Include an executable `/sbin/init`, its interpreter/libraries, and the
-  directories and files the real init requires in that filesystem. Corium
-  does not create runtime mountpoints inside the read-only root.
+  directories and files the real init requires in that filesystem, including
+  real `/dev`, `/proc` and `/sys` mountpoints. Corium does not create runtime
+  mountpoints inside the read-only root.
 
 ## Boot behavior
 
@@ -42,11 +43,12 @@ init (systemd) owns all subsequent operating-system setup.
    available as another consumer's origin.
    Read `/proc/filesystems` and try the listed non-`nodev` drivers in order
    until the view mounts read-only. There is no hardcoded filesystem list.
-6. Make mount propagation recursively private, then detach the temporary API
-   mounts. Use `pivot_root(".", ".")` and detach the
+6. Make mount propagation recursively private, then move the temporary API
+   mounts into the new root. Use `pivot_root(".", ".")` and detach the
    old initramfs, relying on Linux 7.0+'s rootfs semantics. There is no recursive
    deletion, writable old-root directory, or legacy-kernel fallback.
-7. Execute `/sbin/init` with every received process argument after `argv[0]`,
+7. Detach the temporary API mounts, then execute `/sbin/init` with every
+   received process argument after `argv[0]`,
    preserving their bytes, order, and boundaries. Set `argv[0]` to `/sbin/init`
    and inherit the environment. Console descriptors close on successful exec,
    but remain available for a fatal diagnostic if the handoff fails.
@@ -57,7 +59,7 @@ performing init duties. Kernel and real-init output are outside Corium's
 logging policy. Failures before the console is established may have no
 Corium diagnostic if the kernel supplied no usable stderr.
 
-Corium does not create `/run`, transfer API mounts to the new root, enforce
+Corium does not create `/run`, leave API mounts for the real init, enforce
 a JSON boot contract, configure networking or secondary volumes, provide a
 writable root layer, or run as a post-boot service. It has no systemd generator,
 init-path override, directory listing, or success-marker mode.
@@ -115,7 +117,7 @@ The second record appears only at a requested shutdown boundary. Phase meanings:
 | `discovered` | Root chain discovered and validated |
 | `assembled` | Carapace device activated |
 | `mounted` | Root filesystem mounted read-only |
-| `pivoted` | Root pivot and temporary/old mount detachment, before exec |
+| `pivoted` | Root pivot and old-root detachment; API mounts remain until handoff |
 
 Both times are monotonic microseconds. `elapsed_us` measures time since entry
 to the boot routine; `duration_us` measures this phase, including retries.
