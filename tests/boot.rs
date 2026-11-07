@@ -602,3 +602,84 @@ fn initialize_state() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn bind_policy() {
+    let h = harness();
+    let _suite = h.suite("state-root");
+    let root = f::bind_policy_root(h);
+    let disk = f::base(h, &root, "state-base", false);
+    let original = support::hash(&disk.path);
+    let initrd = f::initramfs(h, "state", false, false, "none");
+    let config = format!("corium.root={}\ncorium.log=info", disk.root);
+    for sector in [512, 4096] {
+        let path = h.work.join(format!("state-{sector}.raw"));
+        fs::File::create(&path)
+            .unwrap()
+            .set_len(64 * 1024 * 1024)
+            .unwrap();
+        for (attempt, expected) in [
+            ("first", "CORIUM-STATE-NEW"),
+            ("retained", "CORIUM-STATE-RETAINED"),
+            ("third", "CORIUM-STATE-RETAINED"),
+        ] {
+            let name = format!("state-{sector}-{attempt}");
+            let boot = h.boot_with_storage(
+                &name,
+                &initrd,
+                Some(&disk.path),
+                &config,
+                "",
+                &[(&path, sector)],
+            );
+            boot.expect(READY);
+            assert!(boot.output.contains(expected), "{}", boot.output);
+            h.outcome(&name, "PASS", expected);
+        }
+    }
+    // New declarations hide instance data; removing them exposes it unchanged.
+    for version in ["B", "C"] {
+        for path in [
+            "var/lib/image/value",
+            "var/lib/image-version",
+            "etc/image-version",
+        ] {
+            fs::write(root.join(path), format!("{version}\n")).unwrap();
+        }
+        fs::write(root.join("var/local-metadata"), "image\n").unwrap();
+        fs::write(
+            root.join("var/.bind"),
+            if version == "B" {
+                "lib/image\nlib/image-version\nlocal-metadata\n"
+            } else {
+                "lib/image\nlib/image-version\n"
+            },
+        )
+        .unwrap();
+        let name = format!("state-replacement-{version}");
+        let replacement = f::base(h, &root, &name, false);
+        let digest = support::hash(&replacement.path);
+        let boot = h.boot_with_storage(
+            &name,
+            &initrd,
+            Some(&replacement.path),
+            &format!("corium.root={}", replacement.root),
+            "",
+            &[(&h.work.join("state-512.raw"), 512)],
+        );
+        boot.expect(READY);
+        assert!(
+            boot.output.contains("CORIUM-STATE-RETAINED"),
+            "{}",
+            boot.output
+        );
+        assert_eq!(digest, support::hash(&replacement.path));
+        h.outcome(
+            &name,
+            "PASS",
+            "updated image binds and retained tmpfiles state",
+        );
+    }
+    assert_eq!(original, support::hash(&disk.path));
+}
