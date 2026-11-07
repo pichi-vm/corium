@@ -127,7 +127,7 @@ Two optional settings control diagnostics:
 - `corium.log = off|error|warn|info|debug|trace` sets the maximum verbosity.
   The default is `error`; successful boots are silent. `off` suppresses all
   Corium records, including fatal errors.
-- `corium.halt = started|modules|discovered|assembled|mounted|pivoted`
+- `corium.halt = started|modules|discovered|assembled|mounted|pivoted|state`
   syncs and powers off after the selected phase completes successfully.
   Without it, Corium executes `/sbin/init`. It does not change the log level.
 
@@ -154,6 +154,10 @@ The second record appears only at a requested shutdown boundary. Phase meanings:
 | `assembled` | Carapace device activated |
 | `mounted` | Root filesystem mounted read-only |
 | `pivoted` | Root pivot and old-root detachment; API mounts remain until handoff |
+| `state` | Optional persistent directories and image bindings ready; staging and temporary API mounts detached, before init |
+
+The `state` milestone also occurs when persistence is not enabled. State setup
+failures never report it as completed.
 
 Both times are monotonic microseconds. `elapsed_us` measures time since entry
 to the boot routine; `duration_us` measures this phase, including retries.
@@ -233,9 +237,11 @@ negative control ensures QEMU exit alone is rejected.
 The informational benchmark uses the same large recipe and validation service:
 two warm-up boots and ten measured boots, each in a fresh VM with
 `corium.log = info` in bootconfig.
-The primary metric is `pivoted.elapsed_us`, from entry to Corium's boot routine
-through the final root switch. It excludes startup in `main`, the final log
-write, and `exec`; successful systemd validation independently proves handoff.
+The primary metric is `state.elapsed_us`, from entry to Corium's boot routine
+through state setup and temporary mount cleanup. This benchmark has no state
+manifest, so it measures the ordinary immutable boot path. It excludes startup
+in `main`, the final log write, and `exec`; successful systemd validation
+independently proves handoff.
 It includes earlier logging overhead. Phase durations explain the total but
 must not be summed to reconstruct it, because they exclude completion-record
 writes. Fixture generation, QEMU/kernel startup, and systemd/shutdown are not

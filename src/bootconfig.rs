@@ -151,6 +151,7 @@ mod tests {
             ("assembled", Phase::Assembled),
             ("mounted", Phase::Mounted),
             ("pivoted", Phase::Pivoted),
+            ("state", Phase::State),
         ] {
             let text = format!("corium.halt = \"{name}\"\n");
             assert_eq!(

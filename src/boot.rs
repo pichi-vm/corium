@@ -181,6 +181,9 @@ pub fn boot() -> Result<(), String> {
     for target in ["/proc", "/sys", "/dev"] {
         unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
     }
+    if progress.complete(Phase::State) {
+        return Ok(());
+    }
     // Failed exec retains the console for the fatal diagnostic.
     let error = std::process::Command::new("/sbin/init")
         .args(std::env::args_os().skip(1))
