@@ -55,7 +55,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "uuid",
- "zerocopy",
 ]
 
 [[package]]

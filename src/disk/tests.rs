@@ -495,13 +495,28 @@ fn streams_both_tables_to_the_end_with_bounded_reads() {
         "must read only metadata, including every table block"
     );
     let primary = Disk::header(&mut spy, 1, "primary").unwrap();
-    let backup = Disk::header(&mut spy, primary.backup_lba.get(), "backup").unwrap();
+    let backup = Disk::header(&mut spy, primary.backup_lba, "backup").unwrap();
     let entries = Disk::entries(&mut spy, &primary, &backup).unwrap();
     assert_eq!(entries.len(), 1);
     assert!(
         entries.capacity() < 128,
         "unused slots must not reserve records"
     );
+}
+
+#[test]
+fn ignores_unused_entries_with_nonzero_fields() {
+    let mut fixture = Fixture::new(&[partition_types::LINUX_ROOT_X64]);
+    let expected = fixture.read().unwrap();
+    fixture.entries(|entries| {
+        let mut unused = entries[&1].clone();
+        unused.part_type_guid.guid = Uuid::nil();
+        unused.first_lba = u64::MAX;
+        unused.last_lba = 0;
+        entries.insert(2, unused);
+    });
+    let actual = fixture.read().unwrap();
+    assert_eq!(actual, expected);
 }
 
 #[test]
