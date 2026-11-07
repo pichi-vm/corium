@@ -8,6 +8,7 @@
 [licenses]
 allow = [
     "Apache-2.0",   # this crate + many deps
+    "MIT",          # gpt
     "Unicode-3.0",  # required by the `unicode-ident` family (AND expression)
 ]
 confidence-threshold = 0.8

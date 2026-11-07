@@ -4,25 +4,19 @@
 //! Discover the root in a bounded GPT disk inside a larger Carapace device.
 //!
 //! GPT 1.0 uses 4096-byte logical blocks and 128-byte entries. Both metadata
-//! copies are checked without repair or filesystem probing. Only compact
-//! occupied-entry records survive each block read; only the root is mapped.
+//! copies are checked without repair or filesystem probing. Tables are bounded
+//! to 1 MiB, decoded by gpt, and only the selected root is mapped.
 
 mod entry;
-mod header;
-mod mbr_entry;
 mod partition;
-mod record;
 
 pub(crate) use partition::Partition;
 
 use crc::{CRC_32_ISO_HDLC, Crc};
 use entry::Entry;
-use header::Header;
-use mbr_entry::MbrEntry;
-use record::Record;
+use gpt::{disk::LogicalBlockSize, header::Header};
 use std::io::{self, Read, Seek, SeekFrom};
 use uuid::Uuid;
-use zerocopy::FromBytes as _;
 
 const SECTOR_SIZE: u64 = 4096;
 const NO_AUTO: u64 = 1 << 63;
@@ -71,11 +65,11 @@ impl Disk {
             )));
         }
         let primary = Self::header(reader, 1, "primary")?;
-        let end = primary.backup_lba.get();
-        if primary.current_lba.get() != 1 || !(11..capacity / SECTOR_SIZE).contains(&end) {
+        let end = primary.backup_lba;
+        if primary.current_lba != 1 || !(11..capacity / SECTOR_SIZE).contains(&end) {
             return Err(Self::invalid(format!(
                 "primary GPT header declares LBAs {} and {end} outside backing capacity {capacity} bytes",
-                primary.current_lba.get()
+                primary.current_lba
             )));
         }
         let backup = Self::header(reader, end, "backup")?;
@@ -106,20 +100,16 @@ impl Disk {
         backup: &Header,
     ) -> io::Result<Vec<Entry>> {
         // Header validation bounds the table to 1 MiB before any iteration.
-        let length = u64::from(primary.num_parts.get()) * 128;
+        let length = u64::from(primary.num_parts) * 128;
         let crc = Crc::<u32>::new(&CRC_32_ISO_HDLC);
         let mut primary_crc = crc.digest();
         let mut backup_crc = crc.digest();
         let mut disagreement = None;
-        let mut entries = Vec::new();
+        let mut table = Vec::with_capacity(length as usize);
         for offset in (0..length).step_by(SECTOR_SIZE as usize) {
             let index = offset / SECTOR_SIZE;
-            let block = Self::block(
-                reader,
-                primary.part_start.get() + index,
-                "primary GPT table",
-            )?;
-            let other = Self::block(reader, backup.part_start.get() + index, "backup GPT table")?;
+            let block = Self::block(reader, primary.part_start + index, "primary GPT table")?;
+            let other = Self::block(reader, backup.part_start + index, "backup GPT table")?;
             let used = (length - offset).min(SECTOR_SIZE) as usize;
             primary_crc.update(&block[..used]);
             backup_crc.update(&other[..used]);
@@ -130,28 +120,11 @@ impl Disk {
                     .position(|(left, right)| left != right)
                     .map(|byte| (offset + byte as u64) / 128 + 1);
             }
-            // The fixed wire layout borrows the current block. No names or
-            // complete partition objects are decoded or retained.
-            for (slot, bytes) in block[..used].as_chunks::<128>().0.iter().enumerate() {
-                let raw = Record::ref_from_bytes(bytes).expect("128-byte, alignment-one record");
-                if raw.is_used() {
-                    let entry = Entry::new(offset as u32 / 128 + slot as u32 + 1, raw)?;
-                    if entry.start < primary.first_usable.get()
-                        || entry.end > primary.last_usable.get()
-                    {
-                        return Err(Self::invalid(format!(
-                            "{entry} is outside usable GPT LBAs {}..={} (4096-byte logical blocks)",
-                            primary.first_usable.get(),
-                            primary.last_usable.get()
-                        )));
-                    }
-                    entries.push(entry);
-                }
-            }
+            table.extend_from_slice(&block[..used]);
         }
         for (copy, calculated, expected) in [
-            ("primary", primary_crc.finalize(), primary.crc32_parts.get()),
-            ("backup", backup_crc.finalize(), backup.crc32_parts.get()),
+            ("primary", primary_crc.finalize(), primary.crc32_parts),
+            ("backup", backup_crc.finalize(), backup.crc32_parts),
         ] {
             if calculated != expected {
                 return Err(Self::invalid(format!(
@@ -163,6 +136,30 @@ impl Disk {
             return Err(Self::invalid(format!(
                 "primary and backup GPT partition tables disagree at partition {number}"
             )));
+        }
+        // The crate decodes entries and checks its table CRC. Header policy above
+        // bounds this buffer to 1 MiB before any disk-controlled allocation.
+        let mut header = primary.clone();
+        header.part_start = 0;
+        let partitions = gpt::partition::file_read_partitions(
+            &mut std::io::Cursor::new(table),
+            &header,
+            LogicalBlockSize::Lb4096,
+        )?;
+        let mut entries = Vec::new();
+        for (number, partition) in partitions {
+            // GPT marks unused slots by type, regardless of other slot bytes.
+            if partition.part_type_guid.guid.is_nil() {
+                continue;
+            }
+            let entry = Entry::new(number, &partition)?;
+            if entry.start < primary.first_usable || entry.end > primary.last_usable {
+                return Err(Self::invalid(format!(
+                    "{entry} is outside usable GPT LBAs {}..={} (4096-byte logical blocks)",
+                    primary.first_usable, primary.last_usable,
+                )));
+            }
+            entries.push(entry);
         }
         entries.sort_unstable_by_key(|entry| entry.start);
         for pair in entries.windows(2) {
@@ -193,28 +190,67 @@ impl Disk {
     fn header(reader: &mut (impl Read + Seek), lba: u64, copy: &str) -> io::Result<Header> {
         let context = format!("{copy} GPT header at LBA {lba}");
         let bytes = Self::block(reader, lba, &context)?;
-        Header::read(&bytes, &context)
+        // gpt's public header reader reads LBA 1. Decode the already-read block
+        // in memory so physical reads retain their bounded contextual errors.
+        let mut image = [0; 8192];
+        image[4096..].copy_from_slice(&bytes);
+        let header = gpt::header::read_header_from_arbitrary_device(
+            &mut std::io::Cursor::new(image),
+            LogicalBlockSize::Lb4096,
+        )
+        .map_err(|error| {
+            use gpt::header::HeaderError;
+            match error {
+                HeaderError::InvalidGptSignature => {
+                    Self::invalid(format!("{context}: invalid GPT signature"))
+                }
+                HeaderError::InvalidCRC32Checksum => {
+                    // Decode only the diagnostic checksum after the crate rejects it.
+                    let expected = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
+                    image[4096 + 16..4096 + 20].fill(0);
+                    let calculated = Crc::<u32>::new(&CRC_32_ISO_HDLC)
+                        .checksum(&image[4096..4096 + 92]);
+                    Self::invalid(format!(
+                        "{context} checksum mismatch: expected {expected:#010x}, calculated {calculated:#010x}"
+                    ))
+                }
+                error => Self::invalid(format!("{context}: {error}")),
+            }
+        })?;
+        if header.revision != (1, 0)
+            || header.header_size_le != 92
+            || header.reserved != 0
+            || header.part_size != 128
+            || !(128..=MAX_ENTRIES).contains(&header.num_parts)
+            || header.disk_guid.is_nil()
+            || bytes[92..].iter().any(|byte| *byte != 0)
+        {
+            return Err(Self::invalid(format!(
+                "{context}: unsupported header or entry geometry: {header:?}; requires GPT 1.0, a 92-byte header, 128-byte entries, 128..8192 slots, a nonzero disk UUID and zero reserved bytes"
+            )));
+        }
+        Ok(header)
     }
 
     fn validate_headers(primary: &Header, backup: &Header) -> io::Result<()> {
-        if backup.current_lba.get() != primary.backup_lba.get()
-            || backup.backup_lba.get() != primary.current_lba.get()
+        if backup.current_lba != primary.backup_lba
+            || backup.backup_lba != primary.current_lba
             || backup.disk_guid != primary.disk_guid
-            || backup.first_usable.get() != primary.first_usable.get()
-            || backup.last_usable.get() != primary.last_usable.get()
-            || backup.num_parts.get() != primary.num_parts.get()
-            || backup.crc32_parts.get() != primary.crc32_parts.get()
+            || backup.first_usable != primary.first_usable
+            || backup.last_usable != primary.last_usable
+            || backup.num_parts != primary.num_parts
+            || backup.crc32_parts != primary.crc32_parts
         {
             return Err(Self::invalid(format!(
                 "primary and backup GPT headers disagree: primary {primary:?}; backup {backup:?}"
             )));
         }
-        let table_blocks = (u64::from(primary.num_parts.get()) * 128).div_ceil(SECTOR_SIZE);
-        let start = primary.part_start.get();
-        let first = primary.first_usable.get();
-        let last = primary.last_usable.get();
-        let backup_start = backup.part_start.get();
-        let end = backup.current_lba.get();
+        let table_blocks = (u64::from(primary.num_parts) * 128).div_ceil(SECTOR_SIZE);
+        let start = primary.part_start;
+        let first = primary.first_usable;
+        let last = primary.last_usable;
+        let backup_start = backup.part_start;
+        let end = backup.current_lba;
         if start < 2
             || start > end
             || start + table_blocks > first
@@ -237,15 +273,16 @@ impl Disk {
                 "protective MBR at LBA 0 has nonzero reserved bytes",
             ));
         }
-        if bytes[510..512] != [0x55, 0xaa] {
-            return Err(Self::invalid(
-                "protective MBR at LBA 0 has an invalid signature",
-            ));
-        }
+        let mbr = gpt::mbr::ProtectiveMBR::from_bytes(&bytes, LogicalBlockSize::Lb4096)
+            .map_err(|error| Self::invalid(format!("protective MBR at LBA 0: {error}")))?;
         let mut protective = 0;
         for (index, raw) in bytes[446..510].as_chunks::<16>().0.iter().enumerate() {
-            let entry = MbrEntry::ref_from_bytes(raw).expect("16-byte, alignment-one MBR entry");
-            if entry.protects(sectors) {
+            let entry = mbr.partition(index).expect("four MBR partition slots");
+            if entry.os_type == 0xee
+                && entry.boot_indicator == 0
+                && entry.lb_start == 1
+                && u64::from(entry.lb_size) == (sectors - 1).min(u64::from(u32::MAX))
+            {
                 protective += 1;
             } else if *raw != [0; 16] {
                 return Err(Self::invalid(format!(
