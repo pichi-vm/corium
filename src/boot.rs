@@ -164,8 +164,8 @@ pub fn boot() -> Result<(), String> {
     drop(view);
     drop(device);
 
-    let persistent_var =
-        crate::state::enabled(Path::new(SYSROOT)).map_err(|e| format!("read /var/.bind: {e}"))?;
+    let bindings =
+        crate::state::bindings(Path::new(SYSROOT)).map_err(|e| format!("read /var/.bind: {e}"))?;
 
     if progress.complete(Phase::Mounted) {
         return Ok(());
@@ -174,8 +174,9 @@ pub fn boot() -> Result<(), String> {
     if progress.complete(Phase::Pivoted) {
         return Ok(());
     }
-    if persistent_var {
-        crate::state::mount_var(fstype).map_err(|e| format!("prepare persistent /var: {e}"))?;
+    if let Some(entries) = bindings {
+        crate::state::mount_var(fstype, &entries)
+            .map_err(|e| format!("prepare persistent /var: {e}"))?;
     }
     for target in ["/proc", "/sys", "/dev"] {
         unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;

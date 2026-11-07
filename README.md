@@ -71,9 +71,15 @@ Carapace.
 
 ## Persistent instance state
 
-An empty `/var/.bind` file in the image enables persistent `/var`. Without it,
-Corium leaves writable disks untouched. Nonempty manifests are not supported
-in this version. Root, `/etc` and `/usr` remain read-only.
+A `/var/.bind` file in the image enables persistent `/var`. Without it, Corium
+leaves writable disks untouched. Root, `/etc` and `/usr` remain read-only.
+
+List image-owned files or directories in `/var/.bind`, one relative path beneath
+`/var` per line (for example `lib/dpkg`). These paths remain read-only and come
+from the current image on every boot. An empty file makes all of `/var` mutable.
+Blank lines are allowed. Symlinks, missing sources, escaping paths, overlapping
+entries and conflicting state types are rejected. Declared paths hide existing
+state without deleting it; removing a declaration exposes that state again.
 
 Attach exactly one writable whole virtio disk, either completely blank or
 containing a GPT state partition of type
@@ -91,8 +97,8 @@ existing filesystem failures are fatal.
 The image must provide real `/tmp` and `/var` directories. Corium temporarily
 mounts the state filesystem at `/tmp`, binds its `var` directory onto `/var`,
 and detaches staging before init. Init remains responsible for runtime mounts
-and tmpfiles initialization. Existing state is retained; image `/var` contents
-are hidden. This does not authenticate state or hide the disk from guest root.
+and tmpfiles initialization. Existing state is retained; undeclared image
+`/var` contents are hidden. This does not authenticate state or hide the disk from guest root.
 
 ## Boot configuration
 
