@@ -60,7 +60,7 @@ logging policy. Failures before the console is established may have no
 Corium diagnostic if the kernel supplied no usable stderr.
 
 Corium does not create `/run`, leave API mounts for the real init, enforce
-a JSON boot contract, configure networking or secondary volumes, provide a
+a JSON boot contract, configure networking, provide a
 writable root layer, or run as a post-boot service. It has no systemd generator,
 init-path override, directory listing, or success-marker mode.
 
@@ -68,6 +68,24 @@ The pinned Carapace API currently wraps missing-partition errors as
 `InvalidData`. The discovery adapter recognizes that specific diagnostic;
 other validation errors are not retried. Recheck this adapter when updating
 Carapace.
+
+## Persistent instance state
+
+An empty `/var/.bind` file in the image enables persistent `/var`. Without it,
+Corium leaves writable disks untouched. Nonempty manifests are not supported
+in this version. Root, `/etc` and `/usr` remain read-only.
+
+Attach exactly one writable whole virtio disk with a preformatted GPT state
+partition of type `32a2f055-1a43-44b2-ab7a-483ff5f13481`. Its filesystem must
+match the root filesystem. Corium accepts 512- and 4096-byte logical sectors,
+validates both GPT copies and requires one partition aligned to 1 MiB. It
+rejects blank, unknown or damaged storage without formatting or repairing it.
+
+The image must provide real `/tmp` and `/var` directories. Corium temporarily
+mounts the state filesystem at `/tmp`, binds its `var` directory onto `/var`,
+and detaches staging before init. Init remains responsible for runtime mounts
+and tmpfiles initialization. Existing state is retained; image `/var` contents
+are hidden. This does not authenticate state or hide the disk from guest root.
 
 ## Boot configuration
 

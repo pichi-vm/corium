@@ -766,6 +766,77 @@ pub(crate) fn layered(h: &Harness, name: &str, depth: usize) -> (Disk, Vec<Scute
     (disk, scutes)
 }
 
+/// A systemd guest that checks immutable root and persistent /var across boots.
+pub(crate) fn persistent_var_root(h: &Harness) -> PathBuf {
+    let root = root(h, "persistent-var-root");
+    for tool in ["sh", "cat", "chmod", "stat", "rm"] {
+        executable(&format!("/usr/bin/{tool}"), &root);
+    }
+    fs::create_dir_all(root.join("var")).unwrap();
+    fs::write(root.join("var/.bind"), "").unwrap();
+    fs::write(root.join("state-check.sh"), include_str!("state-var.sh")).unwrap();
+    let unit = root.join("etc/systemd/system/boot-complete.service");
+    let text = fs::read_to_string(&unit).unwrap();
+    fs::write(
+        unit,
+        text.replace(
+            "[Service]",
+            "[Service]\nExecStartPre=/usr/bin/sh /state-check.sh",
+        ),
+    )
+    .unwrap();
+    root
+}
+
+/// Preformat the state disk on the host; Corium must only discover and mount it.
+pub(crate) fn existing_state(h: &Harness, sector: u32) -> PathBuf {
+    let path = h.work.join(format!("state-{sector}.gpt"));
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .unwrap();
+    file.set_len(68 * MIB).unwrap();
+    let block = u64::from(sector);
+    gpt::mbr::ProtectiveMBR::with_lb_size((68 * MIB / block - 1) as u32)
+        .overwrite_lba0(&mut file)
+        .unwrap();
+    let sector_size = if sector == 512 {
+        gpt::disk::LogicalBlockSize::Lb512
+    } else {
+        gpt::disk::LogicalBlockSize::Lb4096
+    };
+    let mut disk = gpt::GptConfig::new()
+        .writable(true)
+        .logical_block_size(sector_size)
+        .create_from_device(&mut file, None)
+        .unwrap();
+    let first = MIB / block;
+    let length = disk.header().last_usable - first + 1;
+    disk.add_partition_at(
+        "pichi-state",
+        1,
+        first,
+        length,
+        uuid::uuid!("32a2f055-1a43-44b2-ab7a-483ff5f13481").into(),
+        0,
+    )
+    .unwrap();
+    disk.write().unwrap();
+    let filesystem = h.work.join(format!("state-{sector}.ext4"));
+    File::create(&filesystem)
+        .unwrap()
+        .set_len(64 * MIB)
+        .unwrap();
+    run(Command::new("mkfs.ext4")
+        .args(["-q", "-F", "-b", "4096"])
+        .arg(&filesystem));
+    file.seek(SeekFrom::Start(MIB)).unwrap();
+    std::io::copy(&mut File::open(filesystem).unwrap(), &mut file).unwrap();
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
