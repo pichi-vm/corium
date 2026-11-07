@@ -8,7 +8,7 @@ export CARGO_TARGET_DIR = $(CURDIR)/target
 	dh $@ --buildsystem=none
 
 override_dh_auto_build:
-	cargo rustc --frozen --release --bin corium -- -C target-feature=+crt-static
+	cargo --config .cargo/vendor.toml rustc --frozen --release --bin corium -- -C target-feature=+crt-static
 
 override_dh_auto_test:
 	readelf -l target/release/corium > target/program-headers.txt

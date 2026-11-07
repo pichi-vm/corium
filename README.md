@@ -235,37 +235,7 @@ is included in the RPM release so later builds of the same version supersede
 earlier packages. Until the first release, the RPM version is `0.1.0~dev`.
 The packaged executable is static and can be used as an initramfs init.
 
-## Ubuntu PPA packages
+## Ubuntu packages
 
-The `PPA source` workflow vendors the locked Rust dependencies on a
-GitHub-hosted runner after each push to `main`, then pushes the prepared
-source to `build/ppa` in Launchpad's `corium-ppa` repository and requests
-builds for the recipe's selected Ubuntu releases. This branch lives only
-on Launchpad and is generated: do not edit it or merge it back into `main`.
-No compilation or package signing happens in CI.
-
-Launchpad builds the source into
-[`ppa:nmccallum/pichi`](https://launchpad.net/~nmccallum/+archive/ubuntu/pichi).
-Configure the existing
-[Corium recipe](https://code.launchpad.net/~nmccallum/+recipe/corium)
-with daily builds disabled and this recipe text:
-
-```text
-# git-build-recipe format 0.4 deb-version {debversion}+{time}
-lp:~nmccallum/pichi-vm/+git/corium-ppa build/ppa
-```
-
-Select the Ubuntu releases in the recipe and `amd64` and `arm64` in the
-PPA. One branch serves all releases; Launchpad adds the release suffix to
-each package version. CI finishes once the build request is accepted;
-package building and publication continue on Launchpad.
-
-Authorize the `pichi-vm` OAuth application to change non-private data and
-save its OAuth Authorization header as the repository Actions secret
-`LAUNCHPAD_AUTHORIZATION`. The header must include the consumer key, access
-token, `PLAINTEXT` signature method, and encoded signature; CI adds a fresh
-timestamp and nonce to each request. See Launchpad's
-[authentication instructions](https://ubuntu.com/docs/launchpad/user/how-to/launchpad-web-signing/).
-CI uses this credential to obtain a short-lived Git push token for
-`corium-ppa`; no separate Git secret or personal GPG key is needed. The API
-credential can be revoked through Launchpad's application authorizations.
+Launchpad builds main snapshots into [`ppa:nmccallum/pichi`](https://launchpad.net/~nmccallum/+archive/ubuntu/pichi).
+See [debian/README.source](debian/README.source) for the PPA publication process and setup.
