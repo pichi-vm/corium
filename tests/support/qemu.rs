@@ -13,13 +13,14 @@ use super::Harness;
 use serde_json::{Value, json};
 
 pub(crate) const READY: &str = "CORIUM-TEST-OK: systemd service started";
-pub(crate) const PHASES: [&str; 6] = [
+pub(crate) const PHASES: [&str; 7] = [
     "started",
     "modules",
     "discovered",
     "assembled",
     "mounted",
     "pivoted",
+    "state",
 ];
 
 struct Guest(Child);

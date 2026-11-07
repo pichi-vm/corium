@@ -28,7 +28,7 @@ fn large_image_boot() {
             &format!("corium.root={}; corium.log=info", disk.root),
         );
         boot.expect(READY);
-        let rows = timings(&boot.output, 6);
+        let rows = timings(&boot.output, PHASES.len());
         for row in &rows {
             writeln!(
                 csv,
@@ -44,21 +44,25 @@ fn large_image_boot() {
         h.outcome(
             &name,
             "PASS",
-            &format!("total_us={} warmup={}", rows[5].elapsed, sample < 2),
+            &format!(
+                "total_us={} warmup={}",
+                rows.last().unwrap().elapsed,
+                sample < 2
+            ),
         );
         if sample >= 2 {
             samples.push(rows);
         }
     }
     let mut report = String::from(
-        "Corium through pivoted; microseconds; 10 samples, 2 warmups\nFresh guest caches; warmed host cache; info logging enabled\nExcludes main startup, final log write and exec syscall\nmetric,median_us,min_us,max_us\n",
+        "Corium through state; microseconds; 10 samples, 2 warmups\nFresh guest caches; warmed host cache; info logging enabled\nExcludes main startup, final log write and exec syscall\nmetric,median_us,min_us,max_us\n",
     );
-    for index in 0..7 {
+    for index in 0..=PHASES.len() {
         let mut values: Vec<_> = samples
             .iter()
             .map(|rows| {
-                if index == 6 {
-                    rows[5].elapsed
+                if index == PHASES.len() {
+                    rows.last().unwrap().elapsed
                 } else {
                     rows[index].duration
                 }
@@ -77,7 +81,11 @@ fn large_image_boot() {
         writeln!(
             report,
             "{},{median},{},{}",
-            if index == 6 { "total" } else { PHASES[index] },
+            if index == PHASES.len() {
+                "total"
+            } else {
+                PHASES[index]
+            },
             values[0],
             values[9]
         )

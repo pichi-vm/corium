@@ -11,6 +11,7 @@ pub(crate) enum Phase {
     Assembled,
     Mounted,
     Pivoted,
+    State,
 }
 
 impl Phase {
@@ -22,6 +23,7 @@ impl Phase {
             "assembled" => Ok(Self::Assembled),
             "mounted" => Ok(Self::Mounted),
             "pivoted" => Ok(Self::Pivoted),
+            "state" => Ok(Self::State),
             _ => Err(format!("invalid corium.halt value: {value}")),
         }
     }
@@ -34,6 +36,7 @@ impl Phase {
             Self::Assembled => "assembled",
             Self::Mounted => "mounted",
             Self::Pivoted => "pivoted",
+            Self::State => "state",
         }
     }
 }
@@ -88,6 +91,7 @@ mod tests {
             Phase::Assembled,
             Phase::Mounted,
             Phase::Pivoted,
+            Phase::State,
         ] {
             assert_eq!(Phase::parse(phase.name()).unwrap(), phase);
         }

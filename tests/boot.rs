@@ -161,6 +161,7 @@ fn boot_contract() {
             &format!("message=\"shutdown requested\" phase=\"{phase}\""),
         );
         timings(&output, index + 1);
+        assert!(!output.contains(READY));
         for unexpected in ["ERROR corium", "DEBUG corium", "TRACE corium"] {
             assert!(!output.contains(unexpected));
         }
@@ -171,7 +172,7 @@ fn boot_contract() {
             &format!("{config}; corium.log={level}"),
             READY,
         );
-        timings(&output, 6);
+        timings(&output, PHASES.len());
         assert_eq!(output.contains("DEBUG corium"), level != "info");
         assert_eq!(output.contains("TRACE corium"), level == "trace");
     }
@@ -258,7 +259,7 @@ fn boot_contract() {
         disk.root,
     );
     let output = run("native-bootconfig", &native, READY);
-    timings(&output, 6);
+    timings(&output, PHASES.len());
     h.boot_with_args(
         "bootconfig-required",
         &initrd,
@@ -613,12 +614,42 @@ fn bind_policy() {
     let original = support::hash(&disk.path);
     let initrd = f::initramfs(h, "state", false, false, "none");
     let config = format!("corium.root={}\ncorium.log=info", disk.root);
+    let failed = h.boot(
+        "state-halt-missing-disk",
+        &initrd,
+        Some(&disk.path),
+        &format!("{config}\ncorium.halt=state"),
+    );
+    failed.expect("exactly one writable whole virtio disk; found 0");
+    assert!(!failed.output.contains("phase=\"state\""));
+    assert!(!failed.output.contains(READY));
+    h.outcome(
+        "state-halt-missing-disk",
+        "PASS",
+        "failure does not complete state phase",
+    );
     for sector in [512, 4096] {
         let path = h.work.join(format!("state-{sector}.raw"));
         fs::File::create(&path)
             .unwrap()
             .set_len(64 * 1024 * 1024)
             .unwrap();
+        let halted = h.boot_with_storage(
+            &format!("state-{sector}-halt"),
+            &initrd,
+            Some(&disk.path),
+            &format!("{config}\ncorium.halt=state"),
+            "",
+            &[(&path, sector)],
+        );
+        halted.expect("message=\"shutdown requested\" phase=\"state\"");
+        assert!(!halted.output.contains(READY));
+        timings(&halted.output, PHASES.len());
+        h.outcome(
+            &format!("state-{sector}-halt"),
+            "PASS",
+            "state prepared before init",
+        );
         for (attempt, expected) in [
             ("first", "CORIUM-STATE-NEW"),
             ("retained", "CORIUM-STATE-RETAINED"),
