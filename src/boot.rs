@@ -17,9 +17,9 @@ use crate::progress::{Phase, Progress};
 
 const SYSROOT: &str = "/sysroot";
 
-/// A read-only filesystem view of a reusable Carapace device.
+/// A filesystem view of a block-device extent, retained by its mount.
 #[derive(Debug)]
-struct MountView {
+pub(crate) struct MountView {
     control: Control,
     id: DevId,
 }
@@ -45,6 +45,22 @@ impl TryFrom<&fs::File> for MountView {
         } else {
             (0, carapace::ZERO_SIZE_SECTORS)
         };
+        Self::new(source, start, sectors, "corium-root", true)
+    }
+}
+
+impl MountView {
+    pub(crate) fn path(&self) -> String {
+        format!("/dev/dm-{}", self.id.minor())
+    }
+
+    pub(crate) fn new(
+        source: &fs::File,
+        start: u64,
+        sectors: u64,
+        name: &str,
+        readonly: bool,
+    ) -> std::io::Result<Self> {
         let control = Control::open()?;
         let target = Linear {
             device: source.metadata()?.try_into()?,
@@ -55,13 +71,13 @@ impl TryFrom<&fs::File> for MountView {
             &target,
             control.version("linear")?,
         )?;
-        // Corium mounts one root as PID 1. A name collision fails rather than
+        // Corium owns these views as PID 1. A name collision fails rather than
         // taking ownership of an existing mapping.
         let view = Self {
-            id: control.create("corium-root")?,
+            id: control.create(name)?,
             control,
         };
-        view.control.load(view.id, table, true)?;
+        view.control.load(view.id, table, readonly)?;
         view.control.suspend(view.id, false)?;
         Ok(view)
     }
@@ -72,14 +88,14 @@ impl Drop for MountView {
         // Remove failed/unmounted views immediately; a successful mount keeps
         // the view and its dependencies alive until the filesystem is released.
         if let Err(error) = self.control.remove(self.id, true) {
-            log::warn!(target: "corium", error:% = error; "cannot defer root view removal");
+            log::warn!(target: "corium", error:% = error; "cannot defer mount view removal");
         }
     }
 }
 
-/// Establish the read-only root and execute /sbin/init. Returns on error or requested shutdown.
-/// Must run as PID 1 in an initramfs; no temporary mounts or descriptors are
-/// passed to the real init.
+/// Establish the verified root, prepare optional persistent /var, and execute /sbin/init.
+/// Returns on error or requested shutdown. Must run as PID 1 in an initramfs.
+/// Only declared state mounts survive handoff; temporary API mounts do not.
 ///
 /// # Errors
 /// Returns an operator-facing diagnostic on non-PID-1 invocation or failure
@@ -129,12 +145,12 @@ pub fn boot() -> Result<(), String> {
         return Ok(());
     }
     let view = MountView::try_from(&device).map_err(|e| format!("create root mount view: {e}"))?;
-    let source = format!("/dev/dm-{}", view.id.minor());
+    let source = view.path();
     log::debug!(target: "corium", device = source.as_str(); "root device assembled");
     fs::create_dir_all(SYSROOT).map_err(|e| format!("create {SYSROOT}: {e}"))?;
     let filesystems = fs::read_to_string("/proc/filesystems")
         .map_err(|e| format!("read filesystem drivers: {e}"))?;
-    mount_root(&filesystems, |fstype| {
+    let fstype = mount_root(&filesystems, |fstype| {
         mount(
             source.as_str(),
             SYSROOT,
@@ -148,12 +164,18 @@ pub fn boot() -> Result<(), String> {
     drop(view);
     drop(device);
 
+    let persistent_var =
+        crate::state::enabled(Path::new(SYSROOT)).map_err(|e| format!("read /var/.bind: {e}"))?;
+
     if progress.complete(Phase::Mounted) {
         return Ok(());
     }
     pivot()?;
     if progress.complete(Phase::Pivoted) {
         return Ok(());
+    }
+    if persistent_var {
+        crate::state::mount_var(fstype).map_err(|e| format!("prepare persistent /var: {e}"))?;
     }
     for target in ["/proc", "/sys", "/dev"] {
         unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
@@ -221,7 +243,7 @@ fn require_kernel(release: &str) -> Result<(), String> {
 fn mount_root(
     filesystems: &str,
     mut attempt: impl FnMut(&str) -> std::io::Result<()>,
-) -> Result<(), String> {
+) -> Result<&str, String> {
     let mut errors = Vec::new();
     for line in filesystems.lines() {
         let mut fields = line.split_whitespace();
@@ -235,7 +257,7 @@ fn mount_root(
         match attempt(fstype) {
             Ok(()) => {
                 log::debug!(target: "corium", filesystem = fstype; "root filesystem mounted");
-                return Ok(());
+                return Ok(fstype);
             }
             Err(error) => {
                 log::trace!(target: "corium", filesystem = fstype, error:% = error; "root mount attempt failed");
