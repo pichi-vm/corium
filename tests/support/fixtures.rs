@@ -837,6 +837,37 @@ pub(crate) fn existing_state(h: &Harness, sector: u32) -> PathBuf {
     path
 }
 
+pub(crate) fn bind_policy_root(h: &Harness) -> PathBuf {
+    let root = root(h, "state-var-tree");
+    for name in ["sh", "cat", "rm", "chmod", "chown", "stat", "findmnt"] {
+        executable(&format!("/usr/bin/{name}"), &root);
+    }
+    executable("/usr/sbin/mkfs.ext4", &root);
+    executable("/usr/bin/systemd-tmpfiles", &root);
+    fs::create_dir_all(root.join("usr/lib/tmpfiles.d")).unwrap();
+    fs::write(root.join("usr/lib/tmpfiles.d/state-test.conf"),
+        "d /var/lib/service 0700 0 0 -\nf /var/lib/service/data 0600 0 0 - seed\nL /var/run - - - - ../run\n").unwrap();
+    fs::write(root.join("etc/systemd/system/systemd-tmpfiles-setup.service"),
+        "[Unit]\nDefaultDependencies=no\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=/usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/state-test.conf\n").unwrap();
+    fs::create_dir_all(root.join("var/lib/image")).unwrap();
+    fs::write(root.join("var/.bind"), "lib/image\nlib/image-version\n").unwrap();
+    fs::write(root.join("var/lib/image/value"), "A\n").unwrap();
+    fs::write(root.join("var/lib/image-version"), "A\n").unwrap();
+    fs::write(root.join("etc/image-version"), "A\n").unwrap();
+    let check = root.join("usr/bin/check-state");
+    fs::write(&check, include_str!("state-binds.sh")).unwrap();
+    fs::set_permissions(&check, fs::Permissions::from_mode(0o755)).unwrap();
+    let service = root.join("etc/systemd/system/boot-complete.service");
+    let text = fs::read_to_string(&service).unwrap()
+        .replace("DefaultDependencies=no", "DefaultDependencies=no\nRequires=systemd-tmpfiles-setup.service\nAfter=systemd-tmpfiles-setup.service")
+        .replace(
+        "ExecStart=/usr/bin/echo",
+        "ExecStart=/usr/bin/check-state\nExecStart=/usr/bin/echo",
+    );
+    fs::write(service, text).unwrap();
+    root
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
