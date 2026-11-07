@@ -5,8 +5,11 @@
 set -eu
 export PATH=/usr/bin:/usr/sbin
 [ "$(findmnt -n -o FSTYPE /)" = ext4 ]
-[ "$(findmnt -n -o FSTYPE /var)" = ext4 ]
-[ ! -e /tmp/var ]
+for path in var home root srv; do
+    [ "$(findmnt -n -o FSTYPE /$path)" = ext4 ]
+    [ ! -e /tmp/$path ]
+done
+[ "$(stat -c %a /root)" = 700 ]
 [ ! -e /run/pichi/state ]
 for path in / /etc /usr /var/lib/image; do
     if (echo forbidden > "$path/corium-forbidden") 2>/dev/null; then exit 1; fi
@@ -30,6 +33,12 @@ if [ -f /var/state-marker ]; then
     [ "$(stat -c %a /var/state-marker)" = 600 ]
     [ "$(stat -c %u:%g /var/state-marker)" = 123:456 ]
     [ ! -e /var/deleted ]
+    for path in /home /root /srv; do
+        [ "$(cat "$path/marker")" = persistent ]
+        [ "$(stat -c %a "$path/marker")" = 600 ]
+        [ "$(stat -c %u:%g "$path/marker")" = 123:456 ]
+        [ ! -e "$path/deleted" ]
+    done
     echo CORIUM-STATE-RETAINED
 else
     [ "$(cat /var/lib/service/data)" = seed ]
@@ -40,5 +49,12 @@ else
     chown 123:456 /var/state-marker
     echo temporary > /var/deleted
     rm /var/deleted
+    for path in /home /root /srv; do
+        echo persistent > "$path/marker"
+        chmod 600 "$path/marker"
+        chown 123:456 "$path/marker"
+        echo temporary > "$path/deleted"
+        rm "$path/deleted"
+    done
     echo CORIUM-STATE-NEW
 fi

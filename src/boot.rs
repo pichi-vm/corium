@@ -93,7 +93,7 @@ impl Drop for MountView {
     }
 }
 
-/// Establish the verified root, prepare optional persistent /var, and execute /sbin/init.
+/// Establish the verified root, prepare optional persistent instance directories, and execute /sbin/init.
 /// Returns on error or requested shutdown. Must run as PID 1 in an initramfs.
 /// Only declared state mounts survive handoff; temporary API mounts do not.
 ///
@@ -175,8 +175,8 @@ pub fn boot() -> Result<(), String> {
         return Ok(());
     }
     if let Some(entries) = bindings {
-        crate::state::mount_var(fstype, &entries)
-            .map_err(|e| format!("prepare persistent /var: {e}"))?;
+        crate::state::mount_state(fstype, &entries)
+            .map_err(|e| format!("prepare persistent state: {e}"))?;
     }
     for target in ["/proc", "/sys", "/dev"] {
         unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;

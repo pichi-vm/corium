@@ -42,6 +42,9 @@ pub(crate) fn root(h: &Harness, name: &str) -> PathBuf {
         "run",
         "etc",
         "var",
+        "home",
+        "root",
+        "srv",
         "tmp",
         "fixture",
         "usr/bin",
@@ -49,6 +52,7 @@ pub(crate) fn root(h: &Harness, name: &str) -> PathBuf {
     ] {
         fs::create_dir_all(root.join(dir)).unwrap();
     }
+    fs::set_permissions(root.join("root"), fs::Permissions::from_mode(0o700)).unwrap();
     executable("/usr/lib/systemd/systemd", &root);
     if Path::new("/usr/lib/systemd/systemd-executor").exists() {
         executable("/usr/lib/systemd/systemd-executor", &root);
@@ -459,6 +463,18 @@ fn filesystem(root: &Path, path: &Path, size: u64) {
         ])
         .arg(root)
         .arg(path));
+    if root.join("var/.bind").exists() {
+        // mkfs -d preserves the host user's IDs; model root-owned OS directories.
+        let mut commands = String::new();
+        for name in ["var", "home", "root", "srv"] {
+            writeln!(commands, "set_inode_field /{name} uid 0").unwrap();
+            writeln!(commands, "set_inode_field /{name} gid 0").unwrap();
+        }
+        input(
+            Command::new("debugfs").args(["-w", "-f", "-"]).arg(path),
+            commands.as_bytes(),
+        );
+    }
 }
 fn check(path: &Path) {
     run(Command::new("e2fsck").arg("-fn").arg(path));
