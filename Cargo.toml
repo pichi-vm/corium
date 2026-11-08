@@ -34,6 +34,8 @@ devmap-core = { git = "https://github.com/pichi-vm/devmap.git", rev = "3a2728f61
 devmap-linux = { git = "https://github.com/pichi-vm/devmap.git", rev = "3a2728f617e9272be5224bbf76ffc4deafdfe83b" }
 # Safe Linux syscall wrappers, including pivot_root and console fd setup.
 rustix = { version = "1", default-features = false, features = ["std", "fs", "process", "mount", "system", "stdio"] }
+# Read module dependency metadata before asking the kernel to load modules.
+object = { version = "0.37", default-features = false, features = ["read_core", "elf", "std"] }
 
 # Keep the initramfs binary small using stable Cargo settings.
 [profile.release]

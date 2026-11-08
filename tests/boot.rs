@@ -130,7 +130,6 @@ fn boot_contract() {
         "loglevel=7",
     );
     boot.expect(READY);
-    h.outcome("systemd-handoff", "PASS", "direct ext4 mount");
     let output = boot.output;
     assert!(
         output.contains("EXT4-fs"),
@@ -142,6 +141,8 @@ fn boot_contract() {
             "unexpected kernel diagnostic: {rejected}\n{output}"
         );
     }
+    assert!(!output.contains("Unknown symbol"), "{output}");
+    h.outcome("systemd-handoff", "PASS", "dependency-ordered modules");
     assert!(!output.contains("corium:"));
     let missing_mount = f::root(h, "missing-api-mountpoint-root");
     std::fs::remove_dir(missing_mount.join("sys")).unwrap();
@@ -300,7 +301,7 @@ fn boot_contract() {
         .expect("waiting for root partitions");
     h.outcome("discovery-timeout", "PASS", "");
     for (name, empty, bad, expected) in [
-        ("bad-module", false, true, "module loading made no progress"),
+        ("bad-module", false, true, "read module"),
         ("absent-modules", true, false, "waiting for root partitions"),
     ] {
         let archive = f::initramfs(h, name, empty, bad, "none");
@@ -313,28 +314,16 @@ fn boot_contract() {
         .expect(expected);
         h.outcome(name, "PASS", "");
     }
-    for (compression, option, tool) in [
-        ("xz", "XZ", "xz"),
-        ("gz", "GZIP", "gzip"),
-        ("zst", "ZSTD", "zstd"),
-    ] {
+    for (compression, tool) in [("xz", "xz"), ("gz", "gzip"), ("zst", "zstd")] {
         let name = format!("modules-{compression}");
-        if !h.config.contains("CONFIG_MODULE_DECOMPRESS=y")
-            || !h
-                .config
-                .contains(&format!("CONFIG_MODULE_COMPRESS_{option}=y"))
-        {
-            h.outcome(&name, "OMIT", "guest kernel lacks this decompressor");
-            continue;
-        }
         if !support::available(tool) {
             h.outcome(&name, "OMIT", "compression tool not installed");
             continue;
         }
         let archive = f::initramfs(h, &name, false, false, compression);
         h.boot(&name, &archive, Some(&disk.path), &config)
-            .expect(READY);
-        h.outcome(&name, "PASS", "");
+            .expect("package plain .ko files with Arma");
+        h.outcome(&name, "PASS", "compressed input rejected before loading");
     }
     for (name, offset, bytes, expected) in [
         (
