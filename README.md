@@ -105,8 +105,9 @@ without persistent state. Root, `/etc` and `/usr` remain read-only.
 List image-owned files or directories in `/var/.bind`, one relative path beneath
 `/var` per line (for example `lib/dpkg`). These paths remain read-only and come
 from the current image on every boot. An absent or empty file makes all of `/var`
-mutable when a state disk is attached. Blank lines are allowed. Symlinks, missing sources, escaping paths, overlapping
-entries and conflicting state types are rejected. Declared paths hide existing
+mutable when a state disk is attached. Blank lines and lines beginning with `#`
+are ignored. Symlinks, missing sources, escaping paths, overlapping entries and
+conflicting state types are rejected. Declared paths hide existing
 state without deleting it; removing a declaration exposes that state again.
 
 Attach exactly one writable whole virtio disk, either completely blank or

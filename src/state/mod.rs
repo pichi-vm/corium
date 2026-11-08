@@ -87,7 +87,7 @@ pub(crate) fn bindings(root: &Path) -> io::Result<Vec<String>> {
 fn parse(text: &str) -> io::Result<Vec<String>> {
     let mut entries: Vec<String> = Vec::new();
     for (number, line) in text.lines().enumerate() {
-        if line.is_empty() {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         if line.trim() != line
@@ -297,10 +297,11 @@ mod tests {
             assert!(parse(text).is_err(), "{text:?}");
         }
         assert_eq!(
-            parse("lib/dpkg\r\n\nlib/shells.state\n").unwrap(),
-            ["lib/dpkg", "lib/shells.state"]
+            parse("# Image metadata\r\nlib/dpkg\r\n\n# Another binding\nlib/file#name\n").unwrap(),
+            ["lib/dpkg", "lib/file#name"]
         );
         assert_eq!(parse("").unwrap(), Vec::<String>::new());
+        assert_eq!(parse("# Comments only\n#\n").unwrap(), Vec::<String>::new());
     }
 
     #[test]
