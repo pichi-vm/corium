@@ -18,7 +18,7 @@ use std::{
 
 const DIRECTORIES: [&str; 4] = ["var", "home", "root", "srv"];
 
-fn device() -> io::Result<fs::File> {
+fn device() -> io::Result<Option<fs::File>> {
     let mut candidates = Vec::new();
     for entry in fs::read_dir("/sys/class/block")? {
         let entry = entry?;
@@ -34,6 +34,9 @@ fn device() -> io::Result<fs::File> {
             candidates.push(Path::new("/dev").join(entry.file_name()));
         }
     }
+    if candidates.is_empty() {
+        return Ok(None);
+    }
     if candidates.len() != 1 {
         return Err(io::Error::other(format!(
             "persistent state needs exactly one writable whole virtio disk; found {}",
@@ -44,21 +47,19 @@ fn device() -> io::Result<fs::File> {
         .read(true)
         .write(true)
         .open(&candidates[0])
+        .map(Some)
 }
 
 /// Read policy only from the verified image, before hiding its /var.
-pub(crate) fn bindings(root: &Path) -> io::Result<Option<Vec<String>>> {
+pub(crate) fn bindings(root: &Path) -> io::Result<Vec<String>> {
     let manifest = root.join("var/.bind");
     let metadata = match fs::symlink_metadata(&manifest) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
     if !metadata.is_file() {
         return Err(io::Error::other("/var/.bind must be a regular file"));
-    }
-    for directory in DIRECTORIES.into_iter().chain(["tmp", "dev", "proc", "sys"]) {
-        directory_type(&root.join(directory))?;
     }
     let entries = parse(&fs::read_to_string(manifest)?)?;
     for entry in &entries {
@@ -80,7 +81,7 @@ pub(crate) fn bindings(root: &Path) -> io::Result<Option<Vec<String>>> {
             }
         }
     }
-    Ok(Some(entries))
+    Ok(entries)
 }
 
 fn parse(text: &str) -> io::Result<Vec<String>> {
@@ -204,7 +205,12 @@ fn format(fstype: &str, path: &str) -> io::Result<()> {
 }
 
 pub(crate) fn mount_state(fstype: &str, entries: &[String]) -> io::Result<()> {
-    let mut device = device()?;
+    let Some(mut device) = device()? else {
+        return Ok(());
+    };
+    for directory in DIRECTORIES.into_iter().chain(["tmp", "dev", "proc", "sys"]) {
+        directory_type(&Path::new("/").join(directory))?;
+    }
     let size = device.seek(SeekFrom::End(0))?;
     let sector = match rustix::fs::ioctl_blksszget(&device)? {
         512 => LogicalBlockSize::Lb512,
@@ -318,24 +324,15 @@ mod tests {
     }
 
     #[test]
-    fn manifest_requires_real_sources_and_opt_in() {
+    fn optional_manifest_requires_real_sources() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
-        assert!(bindings(root).unwrap().is_none());
+        assert_eq!(bindings(root).unwrap(), Vec::<String>::new());
         for path in DIRECTORIES.into_iter().chain(["tmp", "dev", "proc", "sys"]) {
             fs::create_dir(root.join(path)).unwrap();
         }
         fs::write(root.join("var/.bind"), "").unwrap();
-        assert_eq!(bindings(root).unwrap(), Some(vec![]));
-        for name in ["home", "root", "srv"] {
-            let path = root.join(name);
-            fs::remove_dir(&path).unwrap();
-            assert!(bindings(root).is_err());
-            symlink("var", &path).unwrap();
-            assert!(bindings(root).is_err());
-            fs::remove_file(&path).unwrap();
-            fs::create_dir(&path).unwrap();
-        }
+        assert_eq!(bindings(root).unwrap(), Vec::<String>::new());
         fs::write(root.join("var/.bind"), "missing").unwrap();
         assert!(bindings(root).is_err());
         fs::write(root.join("var/value"), "metadata").unwrap();
@@ -343,12 +340,7 @@ mod tests {
         fs::write(root.join("var/.bind"), "link").unwrap();
         assert!(bindings(root).is_err());
         fs::write(root.join("var/.bind"), "value").unwrap();
-        assert_eq!(bindings(root).unwrap(), Some(vec!["value".into()]));
-        fs::remove_dir(root.join("tmp")).unwrap();
-        symlink("var", root.join("tmp")).unwrap();
-        assert!(bindings(root).is_err());
-        fs::remove_file(root.join("tmp")).unwrap();
-        fs::create_dir(root.join("tmp")).unwrap();
+        assert_eq!(bindings(root).unwrap(), vec!["value".to_string()]);
         fs::remove_file(root.join("var/.bind")).unwrap();
         symlink("value", root.join("var/.bind")).unwrap();
         assert!(bindings(root).is_err());

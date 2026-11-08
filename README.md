@@ -98,14 +98,14 @@ Carapace.
 
 ## Persistent instance state
 
-A `/var/.bind` file enables persistent `/var`, `/home`, `/root` and `/srv`
-on the same state filesystem. Without it, Corium leaves writable disks untouched.
-Root, `/etc` and `/usr` remain read-only.
+A writable whole virtio disk provides persistent `/var`, `/home`, `/root` and
+`/srv` on the same state filesystem. Without a writable disk, Corium boots
+without persistent state. Root, `/etc` and `/usr` remain read-only.
 
 List image-owned files or directories in `/var/.bind`, one relative path beneath
 `/var` per line (for example `lib/dpkg`). These paths remain read-only and come
-from the current image on every boot. An empty file makes all of `/var` mutable.
-Blank lines are allowed. Symlinks, missing sources, escaping paths, overlapping
+from the current image on every boot. An absent or empty file makes all of `/var`
+mutable when a state disk is attached. Blank lines are allowed. Symlinks, missing sources, escaping paths, overlapping
 entries and conflicting state types are rejected. Declared paths hide existing
 state without deleting it; removing a declaration exposes that state again.
 

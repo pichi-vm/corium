@@ -463,18 +463,16 @@ fn filesystem(root: &Path, path: &Path, size: u64) {
         ])
         .arg(root)
         .arg(path));
-    if root.join("var/.bind").exists() {
-        // mkfs -d preserves the host user's IDs; model root-owned OS directories.
-        let mut commands = String::new();
-        for name in ["var", "home", "root", "srv"] {
-            writeln!(commands, "set_inode_field /{name} uid 0").unwrap();
-            writeln!(commands, "set_inode_field /{name} gid 0").unwrap();
-        }
-        input(
-            Command::new("debugfs").args(["-w", "-f", "-"]).arg(path),
-            commands.as_bytes(),
-        );
+    // mkfs -d preserves the host user's IDs; model root-owned OS directories.
+    let mut commands = String::new();
+    for name in ["var", "home", "root", "srv"] {
+        writeln!(commands, "set_inode_field /{name} uid 0").unwrap();
+        writeln!(commands, "set_inode_field /{name} gid 0").unwrap();
     }
+    input(
+        Command::new("debugfs").args(["-w", "-f", "-"]).arg(path),
+        commands.as_bytes(),
+    );
 }
 fn check(path: &Path) {
     run(Command::new("e2fsck").arg("-fn").arg(path));
@@ -873,7 +871,6 @@ pub(crate) fn persistent_var_root(h: &Harness, name: &str) -> PathBuf {
         executable(&format!("/usr/bin/{tool}"), &root);
     }
     fs::create_dir_all(root.join("var")).unwrap();
-    fs::write(root.join("var/.bind"), "").unwrap();
     fs::write(root.join("state-check.sh"), include_str!("state-var.sh")).unwrap();
     let unit = root.join("etc/systemd/system/boot-complete.service");
     let text = fs::read_to_string(&unit).unwrap();
