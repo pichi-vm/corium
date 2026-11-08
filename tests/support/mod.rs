@@ -132,10 +132,7 @@ impl Harness {
             release.split('.').next().unwrap().parse::<u32>().unwrap() >= 7,
             "Linux 7+ required"
         );
-        let kernel = std::env::var_os("CORIUM_TEST_KERNEL").map_or_else(
-            || PathBuf::from(format!("/boot/vmlinuz-{release}")),
-            PathBuf::from,
-        );
+        let kernel = PathBuf::from(format!("/boot/vmlinuz-{release}"));
         File::open(&kernel).expect("readable guest kernel required");
         assert!(Path::new("/usr/lib/systemd/systemd").is_file());
         assert!(

@@ -239,7 +239,7 @@ count. The suite requires at least 8 GiB free artifact storage per invocation.
 cargo +stable test --locked --test boot -- --ignored --test-threads=1
 cargo +stable test --locked --test benchmark -- --ignored --nocapture --test-threads=1
 # Optional matching installed kernel override:
-CORIUM_TEST_KERNEL=/path/to/vmlinuz CORIUM_TEST_KERNEL_RELEASE=<release> \
+CORIUM_TEST_KERNEL_RELEASE=<release> \
   cargo +stable test --locked --test boot -- --ignored --test-threads=1
 ```
 
