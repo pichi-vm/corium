@@ -1,8 +1,9 @@
 # Corium
 
-Corium is a minimal Linux initramfs PID 1. Its sole handoff resource is a
-mounted, read-only Carapace root filesystem. It executes `/sbin/init`; the real
-init (systemd) owns all subsequent operating-system setup.
+Corium is a minimal Linux initramfs PID 1. It establishes a verified Carapace
+root and optional writable state, then executes `/sbin/init`. It also retains
+its static executable in `/run/initramfs/shutdown` for systemd’s shutdown
+handoff.
 
 ## Image-builder contract
 
@@ -24,7 +25,7 @@ init (systemd) owns all subsequent operating-system setup.
   for the guest architecture. Corium detects the layout from the GPT signature.
 - Include an executable `/sbin/init`, its interpreter/libraries, and the
   directories and files the real init requires in that filesystem, including
-  real `/dev`, `/proc` and `/sys` mountpoints. Corium does not create runtime
+  real `/dev`, `/proc`, `/sys` and `/run` mountpoints. Corium does not create runtime
   mountpoints inside the read-only root.
 
 ## Boot behavior
@@ -56,13 +57,30 @@ init (systemd) owns all subsequent operating-system setup.
    mounts into the new root. Use `pivot_root(".", ".")` and detach the
    old initramfs, relying on Linux 7.0+'s rootfs semantics. There is no recursive
    deletion, writable old-root directory, or legacy-kernel fallback.
-7. Detach the temporary API mounts, then execute `/sbin/init` with every
+7. Mount tmpfs at `/run` and copy only the running static executable to
+   `/run/initramfs/shutdown`; the boot initramfs and module files are not retained.
+   Detach the temporary API mounts, then execute `/sbin/init` with every
    received process argument after `argv[0]`,
    preserving their bytes, order, and boundaries. Set `argv[0]` to `/sbin/init`
    and inherit the environment. Console descriptors close on successful exec,
    but remain available for a fatal diagnostic if the handoff fails.
 
 On fatal errors, Corium logs at error level, syncs, and attempts to power off.
+
+## Shutdown handoff
+
+Systemd stops services and flushes storage, switches into `/run/initramfs`,
+and executes `/shutdown` with the shutdown action as its first argument.
+Corium normally unmounts the `/oldroot` subtree, children first, then syncs
+and performs the requested poweroff, reboot, halt or kexec. Unmount failures
+are reported before the requested action is attempted. An unsupported action
+is reported and halts instead. No dracut restoration service is needed.
+
+Carapace and Corium mappings already use deferred removal. Corium does not
+wait for their kernel objects to disappear after unmounting, issue additional
+device-removal commands, or reload modules. Writable state must be cleanly
+unmounted; read-only mapping disappearance is not a shutdown gate.
+
 It never returns from PID 1. Invoking it as an ordinary process fails without
 performing init duties. Kernel and real-init output are outside Corium's
 logging policy. Failures before the console is established may have no

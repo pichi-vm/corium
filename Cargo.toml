@@ -12,7 +12,6 @@ description = "Minimal initramfs init: mount a read-only Carapace root and execu
 [[bin]]
 name = "corium"
 path = "src/main.rs"
-test = false
 
 [lib]
 
