@@ -759,3 +759,63 @@ fn bind_policy() {
     }
     assert_eq!(original, support::hash(&disk.path));
 }
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn shutdown_handoff() {
+    let h = harness();
+    let _suite = h.suite("shutdown-handoff");
+    let root = f::root(h, "shutdown-root");
+    f::executable("/usr/lib/systemd/systemd-shutdown", &root);
+    let service = root.join("etc/systemd/system/boot-complete.service");
+    let text = std::fs::read_to_string(&service).unwrap();
+    std::fs::write(
+        &service,
+        text.replace("poweroff-immediate", "poweroff-force"),
+    )
+    .unwrap();
+    let disk = f::base(h, &root, "shutdown", false);
+    let initrd = f::initramfs(h, "shutdown", false, false, "none");
+    let boot = h.boot(
+        "shutdown",
+        &initrd,
+        Some(&disk.path),
+        &format!("corium.root={}", disk.root),
+    );
+    boot.expect(READY);
+    assert!(
+        boot.output.contains("old root unmounted"),
+        "{}",
+        boot.output
+    );
+    assert!(
+        !boot.output.contains("shutdown incomplete"),
+        "{}",
+        boot.output
+    );
+    h.outcome("shutdown", "PASS", "normal old-root unmount without dracut");
+
+    std::fs::write(&service, text.replace("poweroff-immediate", "reboot-force")).unwrap();
+    let disk = f::base(h, &root, "shutdown-reboot", false);
+    let boot = h.boot(
+        "shutdown-reboot",
+        &initrd,
+        Some(&disk.path),
+        &format!("corium.root={}", disk.root),
+    );
+    assert!(boot.success, "{}", boot.output);
+    let event = boot.shutdown.as_ref().expect("missing shutdown event");
+    assert_eq!(event["guest"], true);
+    assert_eq!(event["reason"], "guest-reset");
+    assert!(
+        boot.output.contains("old root unmounted"),
+        "{}",
+        boot.output
+    );
+    assert!(
+        !boot.output.contains("shutdown incomplete"),
+        "{}",
+        boot.output
+    );
+    h.outcome("shutdown-reboot", "PASS", "requested reboot preserved");
+}

@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: Advanced Micro Devices, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! The initramfs PID 1. The mounted root is its only handoff resource.
+//! Boot and shutdown PID 1.
+
+mod shutdown;
 
 fn main() -> std::process::ExitCode {
     corium::init_logging();
@@ -10,12 +12,32 @@ fn main() -> std::process::ExitCode {
         log::error!(target: "corium", "must run as PID 1");
         return std::process::ExitCode::FAILURE;
     }
-    if let Err(error) = corium::boot() {
-        log::error!(target: "corium", error:% = error; "boot failed");
-    }
+    let command =
+        if std::env::args_os().next().as_deref() == Some(std::ffi::OsStr::new("/shutdown")) {
+            log::set_max_level(log::LevelFilter::Info);
+            match shutdown::action(std::env::args_os().nth(1).as_deref()) {
+                Ok(command) => {
+                    if let Err(error) = shutdown::unmount_old_root() {
+                        log::error!(target: "corium", error:% = error; "shutdown incomplete");
+                    }
+                    command
+                }
+                Err(error) => {
+                    log::error!(target: "corium", error:% = error; "invalid shutdown action");
+                    rustix::system::RebootCommand::Halt
+                }
+            }
+        } else {
+            if let Err(error) = corium::boot() {
+                log::error!(target: "corium", error:% = error; "boot failed");
+            }
+            rustix::system::RebootCommand::PowerOff
+        };
     rustix::fs::sync();
     log::logger().flush();
-    let _ = rustix::system::reboot(rustix::system::RebootCommand::PowerOff);
+    if let Err(error) = rustix::system::reboot(command) {
+        log::error!(target: "corium", error:% = error; "shutdown action failed");
+    }
     // PID 1 must not return, even if reboot fails.
     loop {
         std::thread::park();

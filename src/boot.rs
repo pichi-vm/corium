@@ -96,7 +96,7 @@ impl Drop for MountView {
 
 /// Establish the verified root, prepare optional persistent instance directories, and execute /sbin/init.
 /// Returns on error or requested shutdown. Must run as PID 1 in an initramfs.
-/// Only declared state mounts survive handoff; temporary API mounts do not.
+/// State mounts and the shutdown executable in /run survive handoff; temporary API mounts do not.
 ///
 /// # Errors
 /// Returns an operator-facing diagnostic on non-PID-1 invocation or failure
@@ -182,6 +182,18 @@ pub fn boot() -> Result<(), String> {
         crate::state::mount_state(fstype, &entries)
             .map_err(|e| format!("prepare persistent state: {e}"))?;
     }
+    // Keep only our static executable for systemd's shutdown root handoff.
+    mount(
+        "tmpfs",
+        "/run",
+        "tmpfs",
+        MountFlags::NOSUID | MountFlags::NODEV,
+        Some(c"mode=0755"),
+    )
+    .map_err(|e| format!("mount /run: {e}"))?;
+    fs::create_dir_all("/run/initramfs").map_err(|e| format!("create shutdown root: {e}"))?;
+    fs::copy("/proc/self/exe", "/run/initramfs/shutdown")
+        .map_err(|e| format!("retain shutdown executable: {e}"))?;
     for target in ["/proc", "/sys", "/dev"] {
         unmount(target, UnmountFlags::DETACH).map_err(|e| format!("detach {target}: {e}"))?;
     }
