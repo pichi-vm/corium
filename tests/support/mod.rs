@@ -104,6 +104,8 @@ impl Harness {
             "rustc",
             "qemu-system-x86_64",
             "mkfs.ext4",
+            "mkfs.xfs",
+            "mkfs.btrfs",
             "debugfs",
             "e2fsck",
             "veritysetup",
@@ -164,6 +166,8 @@ impl Harness {
             "dm_snapshot",
             "dm_verity",
             "ext4",
+            "xfs",
+            "btrfs",
         ];
         if available("mksquashfs")
             && config

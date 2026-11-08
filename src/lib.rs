@@ -11,6 +11,7 @@ mod boot;
 mod bootconfig;
 mod discovery;
 mod disk;
+mod filesystem;
 mod logging;
 mod modules;
 mod progress;

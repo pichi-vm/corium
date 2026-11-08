@@ -41,8 +41,13 @@ init (systemd) owns all subsequent operating-system setup.
 5. Create a read-only dm-linear view named `corium-root` over the assembled
    device or its selected GPT root partition, leaving the shared chain
    available as another consumer's origin.
-   Read `/proc/filesystems` and try the listed non-`nodev` drivers in order
-   until the view mounts read-only. There is no hardcoded filesystem list.
+   Recognize ext-family, XFS and Btrfs primary superblock signatures and use
+   the matching registered driver directly. Prefer ext4 for the ext family
+   (it also supports ext2/ext3), avoiding incompatible older alias probes.
+   A missing driver or rejected recognized mount is fatal; conflicting
+   signatures are rejected. Otherwise try registered non-`nodev` drivers until
+   the view mounts read-only. Unknown formats retain driver discovery rather
+   than being rejected by a fixed filesystem allowlist.
 6. Make mount propagation recursively private, then move the temporary API
    mounts into the new root. Use `pivot_root(".", ".")` and detach the
    old initramfs, relying on Linux 7.0+'s rootfs semantics. There is no recursive
@@ -197,7 +202,8 @@ Use `aarch64-unknown-linux-musl` for an ARM64 guest.
 The rootless x86-64 VM tests are ignored Rust integration tests. They require
 read/write access to `/dev/kvm`, a readable Linux 7.0+ kernel and matching
 installed modules/configuration, stable Rust with the x86-64 musl target,
-QEMU, host systemd, `cpio`, `sfdisk`, `mkfs.ext4`, `debugfs`, `e2fsck`,
+QEMU, host systemd, `cpio`, `sfdisk`, `mkfs.ext4`, `mkfs.xfs`, `mkfs.btrfs`,
+matching ext4/XFS/Btrfs kernel drivers, `debugfs`, `e2fsck`,
 `modprobe`, `veritysetup`, `dmsetup`, `losetup`, `mount`, `umount`, `mkdir`,
 `truncate`, `sh`, `ldd`, `ldconfig`, `sha256sum`, `df`, and `lsblk`.
 Installed compressed modules also require the corresponding `xz`, `gzip`, or
