@@ -122,7 +122,34 @@ fn boot_contract() {
         h.outcome(name, "PASS", "");
         boot.output
     };
-    let output = run("systemd-handoff", &config, READY);
+    let boot = h.boot_with_args(
+        "systemd-handoff",
+        &initrd,
+        Some(&disk.path),
+        &config,
+        "loglevel=7",
+    );
+    boot.expect(READY);
+    h.outcome(
+        "systemd-handoff",
+        "PASS",
+        "dependency-ordered modules and direct ext4 mount",
+    );
+    let output = boot.output;
+    assert!(
+        output.contains("EXT4-fs"),
+        "kernel diagnostics must be enabled"
+    );
+    for rejected in [
+        "Unknown symbol",
+        "couldn't mount as ext3",
+        "couldn't mount as ext2",
+    ] {
+        assert!(
+            !output.contains(rejected),
+            "unexpected kernel diagnostic: {rejected}\n{output}"
+        );
+    }
     assert!(!output.contains("corium:"));
     let missing_mount = f::root(h, "missing-api-mountpoint-root");
     std::fs::remove_dir(missing_mount.join("sys")).unwrap();
@@ -281,7 +308,7 @@ fn boot_contract() {
         .expect("waiting for root partitions");
     h.outcome("discovery-timeout", "PASS", "");
     for (name, empty, bad, expected) in [
-        ("bad-module", false, true, "module loading made no progress"),
+        ("bad-module", false, true, "read module"),
         ("absent-modules", true, false, "waiting for root partitions"),
     ] {
         let archive = f::initramfs(h, name, empty, bad, "none");
@@ -368,6 +395,47 @@ fn boot_contract() {
     )
     .expect("exec /sbin/init:");
     h.outcome("exec-failure", "PASS", "");
+}
+
+#[test]
+#[ignore = "requires QEMU/KVM, Linux 7+ kernel/modules and image tools"]
+fn xfs_and_btrfs_roots() {
+    let h = harness();
+    let _suite = h.suite("filesystem-roots");
+    let root = f::root(h, "other-filesystem-root");
+    let initrd = f::initramfs(h, "filesystem-roots", false, false, "none");
+    for fstype in ["xfs", "btrfs"] {
+        let disk = h.filesystem_root(&root, fstype);
+        let boot = h.boot_with_args(
+            &format!("{fstype}-handoff"),
+            &initrd,
+            Some(&disk.path),
+            &format!("corium.root={}; corium.log=debug", disk.root),
+            "loglevel=7",
+        );
+        boot.expect(READY);
+        assert!(
+            boot.output.contains(&format!("filesystem=\"{fstype}\"")),
+            "{}",
+            boot.output
+        );
+        for rejected in [
+            "Unknown symbol",
+            "couldn't mount as ext3",
+            "couldn't mount as ext2",
+        ] {
+            assert!(
+                !boot.output.contains(rejected),
+                "{rejected}\n{}",
+                boot.output
+            );
+        }
+        h.outcome(
+            &format!("{fstype}-handoff"),
+            "PASS",
+            "detected root, mounted read-only and executed systemd",
+        );
+    }
 }
 
 #[test]

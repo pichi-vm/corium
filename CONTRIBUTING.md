@@ -37,7 +37,8 @@ its string-matched retry adapter, so dependency updates must pass it too.
 
 The workflow uses GitHub-hosted `ubuntu-26.04` runners and their Linux 7.0+
 kernel, matching modules and configuration. Setup installs image-building
-tools and stable Rust's x86_64 musl target, grants the runner user KVM access,
+tools (including xfsprogs and btrfs-progs) and stable Rust's x86_64 musl
+target, grants the runner user KVM access,
 and makes the guest kernel readable. The test suite itself runs without root.
 No self-hosted runner is needed. Manual dispatch remains available for reruns;
 it is not required for normal PR validation.
