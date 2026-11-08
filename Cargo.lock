@@ -26,7 +26,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 [[package]]
 name = "carapace"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/carapace?rev=b2365ba4e1cd52ec7f8419c8553390dbe23507de#b2365ba4e1cd52ec7f8419c8553390dbe23507de"
+source = "git+https://github.com/pichi-vm/carapace?branch=main#e3ba8daaef3fb28d20395e79690f2e0fa8cee1a3"
 dependencies = [
  "devmap-core",
  "devmap-linux",
@@ -95,7 +95,7 @@ dependencies = [
 [[package]]
 name = "devmap-core"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
+source = "git+https://github.com/pichi-vm/devmap.git?branch=main#19a368a0083ad0cbe92e6a5b65e0bb5761f8616c"
 dependencies = [
  "iocuddle",
 ]
@@ -103,7 +103,7 @@ dependencies = [
 [[package]]
 name = "devmap-linux"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
+source = "git+https://github.com/pichi-vm/devmap.git?branch=main#19a368a0083ad0cbe92e6a5b65e0bb5761f8616c"
 dependencies = [
  "devmap-core",
  "iocuddle",
@@ -113,7 +113,7 @@ dependencies = [
 [[package]]
 name = "devmap-snapshot"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
+source = "git+https://github.com/pichi-vm/devmap.git?branch=main#19a368a0083ad0cbe92e6a5b65e0bb5761f8616c"
 dependencies = [
  "devmap-core",
  "devmap-linux",
@@ -122,7 +122,7 @@ dependencies = [
 [[package]]
 name = "devmap-verity"
 version = "0.1.0"
-source = "git+https://github.com/pichi-vm/devmap.git?rev=3a2728f617e9272be5224bbf76ffc4deafdfe83b#3a2728f617e9272be5224bbf76ffc4deafdfe83b"
+source = "git+https://github.com/pichi-vm/devmap.git?branch=main#19a368a0083ad0cbe92e6a5b65e0bb5761f8616c"
 dependencies = [
  "devmap-core",
  "devmap-linux",
