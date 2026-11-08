@@ -6,6 +6,7 @@ use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 
 use crate::disk::{Disk, ROOT_PARTITION_TYPE};
+use crate::filesystem::Filesystem;
 use carapace::{Assemble, DevId};
 use devmap_core::Span;
 use devmap_linux::{Control, Table, targets::Linear};
@@ -150,7 +151,10 @@ pub fn boot() -> Result<(), String> {
     fs::create_dir_all(SYSROOT).map_err(|e| format!("create {SYSROOT}: {e}"))?;
     let filesystems = fs::read_to_string("/proc/filesystems")
         .map_err(|e| format!("read filesystem drivers: {e}"))?;
-    let fstype = mount_root(&filesystems, |fstype| {
+    let filesystem = fs::File::open(&source)
+        .and_then(Filesystem::probe)
+        .map_err(|e| format!("read root superblock: {e}"))?;
+    let fstype = mount_root(&filesystems, filesystem, |fstype| {
         mount(
             source.as_str(),
             SYSROOT,
@@ -246,8 +250,16 @@ fn require_kernel(release: &str) -> Result<(), String> {
 
 fn mount_root(
     filesystems: &str,
+    filesystem: Option<Filesystem>,
     mut attempt: impl FnMut(&str) -> std::io::Result<()>,
 ) -> Result<&str, String> {
+    if let Some(filesystem) = filesystem {
+        let driver = filesystem.driver(filesystems)?;
+        attempt(driver)
+            .map_err(|error| format!("cannot mount {driver} root read-only: {error}"))?;
+        log::debug!(target: "corium", filesystem = driver; "root filesystem mounted");
+        return Ok(driver);
+    }
     let mut errors = Vec::new();
     for line in filesystems.lines() {
         let mut fields = line.split_whitespace();
@@ -320,6 +332,7 @@ mod tests {
         let mut attempts = Vec::new();
         mount_root(
             "nodev\tproc\n\txfs\nnodev\ttmpfs\n\text4\n\tbtrfs\n",
+            None,
             |name| {
                 attempts.push(name.to_string());
                 if name == "ext4" {
@@ -335,15 +348,37 @@ mod tests {
 
     #[test]
     fn all_mount_failures_are_reported() {
-        let error =
-            mount_root("xfs\next4\n", |_| Err(std::io::Error::other("bad root"))).unwrap_err();
+        let error = mount_root("xfs\next4\n", None, |_| {
+            Err(std::io::Error::other("bad root"))
+        })
+        .unwrap_err();
         assert!(error.contains("xfs: bad root"));
         assert!(error.contains("ext4: bad root"));
         for input in ["nodev proc\n", "", "  \n\t"] {
             assert_eq!(
-                mount_root(input, |_| panic!("must not mount nodev")).unwrap_err(),
+                mount_root(input, None, |_| panic!("must not mount nodev")).unwrap_err(),
                 "no block filesystem drivers available"
             );
         }
+    }
+
+    #[test]
+    fn ext_superblock_uses_ext4_without_incompatible_probes() {
+        let mut attempts = Vec::new();
+        assert_eq!(
+            mount_root("ext3\next2\next4\n", Some(Filesystem::Ext), |name| {
+                attempts.push(name.to_owned());
+                Ok(())
+            })
+            .unwrap(),
+            "ext4"
+        );
+        assert_eq!(attempts, ["ext4"]);
+        let error = mount_root("ext3\next2\next4\n", Some(Filesystem::Ext), |name| {
+            assert_eq!(name, "ext4");
+            Err(std::io::Error::other("corrupt superblock"))
+        })
+        .unwrap_err();
+        assert!(error.contains("corrupt superblock"));
     }
 }

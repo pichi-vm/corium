@@ -602,6 +602,90 @@ pub(crate) fn base(h: &Harness, root: &Path, name: &str, squash: bool) -> Disk {
     pack(&work, "disk", &[scute], None)
 }
 
+impl Harness {
+    pub(crate) fn filesystem_root(&self, root: &Path, fstype: &str) -> Disk {
+        let work = self.work.join(format!("root-{fstype}"));
+        fs::create_dir(&work).unwrap();
+        let raw = work.join("filesystem");
+        File::create(&raw)
+            .unwrap()
+            .set_len(Self::filesystem_size(root).max(512 * MIB))
+            .unwrap();
+        match fstype {
+            "xfs" => {
+                let mut prototype = XfsPrototype("corium-fixture\n0 0\n".into());
+                prototype.append(root);
+                let path = work.join("prototype");
+                fs::write(&path, prototype.0).unwrap();
+                run(Command::new("mkfs.xfs")
+                    .args(["-q", "-f", "-s", "size=4096", "-p"])
+                    .arg(path)
+                    .arg(&raw));
+            }
+            "btrfs" => {
+                run(Command::new("mkfs.btrfs")
+                    .args(["-q", "-f", "--sectorsize", "4096", "--rootdir"])
+                    .arg(root)
+                    .arg(&raw));
+            }
+            _ => panic!("unsupported fixture filesystem: {fstype}"),
+        }
+        let partitioned = RootDisk::new(&work, &raw, false);
+        let scute = scute(&work, &partitioned.path, None, 0, &"00".repeat(32));
+        pack(&work, "disk", &[scute], None)
+    }
+}
+
+/// Populate XFS without mounting or requiring host root privileges.
+struct XfsPrototype(String);
+
+impl XfsPrototype {
+    fn token(path: &Path) -> &str {
+        let token = path.to_str().unwrap();
+        assert!(
+            !token
+                .chars()
+                .any(|ch| ch.is_whitespace() || matches!(ch, ':' | '$'))
+        );
+        token
+    }
+
+    fn append(&mut self, path: &Path) {
+        let metadata = path.symlink_metadata().unwrap();
+        let mode = metadata.permissions().mode();
+        // Fixtures contain only ordinary directories, files and symlinks.
+        // Set owner IDs explicitly to model a system root built without sudo.
+        if metadata.is_dir() {
+            writeln!(self.0, "d--{:03o} 0 0", mode & 0o777).unwrap();
+            let mut entries = fs::read_dir(path)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
+            entries.sort();
+            for entry in entries {
+                write!(
+                    self.0,
+                    "{} ",
+                    Self::token(Path::new(entry.file_name().unwrap()))
+                )
+                .unwrap();
+                self.append(&entry);
+            }
+            writeln!(self.0, "$").unwrap();
+        } else if metadata.file_type().is_symlink() {
+            writeln!(
+                self.0,
+                "l--777 0 0 {}",
+                Self::token(&fs::read_link(path).unwrap())
+            )
+            .unwrap();
+        } else {
+            assert!(metadata.is_file());
+            writeln!(self.0, "---{:03o} 0 0 {}", mode & 0o777, Self::token(path)).unwrap();
+        }
+    }
+}
+
 /// Seal changed GPT metadata into a valid scute so boot tests exercise layout
 /// validation rather than merely failing the outer integrity check.
 pub(crate) fn partition_case(h: &Harness, root: &Path, name: &str) -> Disk {
