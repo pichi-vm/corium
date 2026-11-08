@@ -32,9 +32,13 @@ init (systemd) owns all subsequent operating-system setup.
 1. Mount devtmpfs and reopen the console. Require Linux 7.0+ before mounting
    temporary procfs and sysfs.
 2. Read and validate Corium's settings from `/proc/bootconfig`.
-3. Recursively load the running kernel's module set. Already-loaded modules
-   count as success. Repeat passes for dependencies; a pass that loads no
-   additional module is fatal. An absent or empty module directory is valid.
+3. Read the selected plain `.ko` files' ELF `.modinfo` hard dependencies
+   and load dependencies first. Arma decompresses modules when building the
+   initramfs; compressed files are rejected with a packaging diagnostic.
+   Already-loaded modules count as available. Missing dependencies, cycles
+   and malformed metadata fail before loading; kernel rejection is fatal.
+   Module metadata reads are limited to 64 MiB per file.
+   An absent or empty module directory is valid.
 4. Discover the root chain, allowing up to five seconds for missing partitions.
    Validation and other I/O failures are fatal immediately. Assemble it using
    Carapace's file-based API.
