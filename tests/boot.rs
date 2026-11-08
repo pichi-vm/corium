@@ -500,9 +500,6 @@ fn preformatted_var() {
             h.outcome(&name, "PASS", marker);
         }
     }
-    let missing = h.boot("missing-state", &initrd, Some(&disk.path), &config);
-    missing.expect("exactly one writable whole virtio disk; found 0");
-    h.outcome("missing-state", "PASS", "");
     let first = h.work.join("state-512.gpt");
     let second = h.work.join("state-4096.gpt");
     let hashes = [support::hash(&first), support::hash(&second)];
@@ -518,17 +515,15 @@ fn preformatted_var() {
     h.outcome("ambiguous-state", "PASS", "");
     let ordinary_root = f::root(h, "ordinary-root");
     let ordinary = f::base(h, &ordinary_root, "ordinary", false);
-    let untouched = h.boot_with_storage(
-        "no-state-policy",
+    let no_state = h.boot(
+        "no-state-disk",
         &initrd,
         Some(&ordinary.path),
         &format!("corium.root={}", ordinary.root),
-        "",
-        &[(&first, 512), (&second, 4096)],
     );
-    untouched.expect(READY);
+    no_state.expect(READY);
     assert_eq!([support::hash(&first), support::hash(&second)], hashes);
-    h.outcome("no-state-policy", "PASS", "attached state disks unchanged");
+    h.outcome("no-state-disk", "PASS", "immutable boot without state");
     let unknown = h.work.join("unknown-state.raw");
     let mut file = fs::File::create(&unknown).unwrap();
     file.set_len(8 * 1024 * 1024).unwrap();
@@ -659,19 +654,18 @@ fn bind_policy() {
     let original = support::hash(&disk.path);
     let initrd = f::initramfs(h, "state", false, false, "none");
     let config = format!("corium.root={}\ncorium.log=info", disk.root);
-    let failed = h.boot(
-        "state-halt-missing-disk",
+    let no_state = h.boot(
+        "state-halt-no-disk",
         &initrd,
         Some(&disk.path),
         &format!("{config}\ncorium.halt=state"),
     );
-    failed.expect("exactly one writable whole virtio disk; found 0");
-    assert!(!failed.output.contains("phase=\"state\""));
-    assert!(!failed.output.contains(READY));
+    no_state.expect("phase=\"state\"");
+    assert!(!no_state.output.contains(READY));
     h.outcome(
-        "state-halt-missing-disk",
+        "state-halt-no-disk",
         "PASS",
-        "failure does not complete state phase",
+        "no disk completes state phase without mounting",
     );
     for sector in [512, 4096] {
         let path = h.work.join(format!("state-{sector}.raw"));

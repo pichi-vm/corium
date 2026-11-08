@@ -178,10 +178,8 @@ pub fn boot() -> Result<(), String> {
     if progress.complete(Phase::Pivoted) {
         return Ok(());
     }
-    if let Some(entries) = bindings {
-        crate::state::mount_state(fstype, &entries)
-            .map_err(|e| format!("prepare persistent state: {e}"))?;
-    }
+    crate::state::mount_state(fstype, &bindings)
+        .map_err(|e| format!("prepare persistent state: {e}"))?;
     // Keep only our static executable for systemd's shutdown root handoff.
     mount(
         "tmpfs",
