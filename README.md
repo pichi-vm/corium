@@ -223,8 +223,9 @@ cargo deny check
 Use `aarch64-unknown-linux-musl` for an ARM64 guest.
 
 The rootless x86-64 VM tests are ignored Rust integration tests. They require
-read/write access to `/dev/kvm`, a readable Linux 7.0+ kernel and matching
-installed modules/configuration, stable Rust with the x86-64 musl target,
+read/write access to `/dev/kvm`, a running Linux 7.0+ kernel with its readable
+`/boot/vmlinuz-$(uname -r)` and matching installed modules/configuration,
+stable Rust with the x86-64 musl target,
 QEMU, host systemd, `cpio`, `sfdisk`, `mkfs.ext4`, `mkfs.xfs`, `mkfs.btrfs`,
 matching ext4/XFS/Btrfs kernel drivers, `debugfs`, `e2fsck`,
 `modprobe`, `veritysetup`, `dmsetup`, `losetup`, `mount`, `umount`, `mkdir`,
@@ -238,9 +239,6 @@ count. The suite requires at least 8 GiB free artifact storage per invocation.
 ```sh
 cargo +stable test --locked --test boot -- --ignored --test-threads=1
 cargo +stable test --locked --test benchmark -- --ignored --nocapture --test-threads=1
-# Optional matching installed kernel override:
-CORIUM_TEST_KERNEL_RELEASE=<release> \
-  cargo +stable test --locked --test boot -- --ignored --test-threads=1
 ```
 
 The guest binary is built once per invocation using stable Rust's musl release

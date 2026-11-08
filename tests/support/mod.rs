@@ -126,8 +126,7 @@ impl Harness {
             .write(true)
             .open("/dev/kvm")
             .expect("read/write access to /dev/kvm required");
-        let release = std::env::var("CORIUM_TEST_KERNEL_RELEASE")
-            .unwrap_or_else(|_| text(Command::new("uname").arg("-r")).trim().into());
+        let release = text(Command::new("uname").arg("-r")).trim().to_owned();
         assert!(
             release.split('.').next().unwrap().parse::<u32>().unwrap() >= 7,
             "Linux 7+ required"
