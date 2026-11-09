@@ -778,7 +778,12 @@ fn shutdown_handoff() {
     );
     boot.expect(READY);
     assert!(
-        boot.output.contains("old root unmounted"),
+        !boot.output.contains("configure shutdown logging"),
+        "{}",
+        boot.output
+    );
+    assert!(
+        !boot.output.contains("old root unmounted"),
         "{}",
         boot.output
     );
@@ -795,7 +800,7 @@ fn shutdown_handoff() {
         "shutdown-reboot",
         &initrd,
         Some(&disk.path),
-        &format!("corium.root={}", disk.root),
+        &format!("corium.root={}\ncorium.log=info", disk.root),
     );
     assert!(boot.success, "{}", boot.output);
     let event = boot.shutdown.as_ref().expect("missing shutdown event");
