@@ -184,6 +184,7 @@ fn format(fstype: &str, path: &str) -> io::Result<()> {
     let console = fs::OpenOptions::new().write(true).open("/dev/console")?;
     let stderr = console.try_clone()?;
     let status = Command::new(format!("/usr/sbin/mkfs.{fstype}"))
+        .arg("-q")
         .arg(path)
         .env_clear()
         .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
