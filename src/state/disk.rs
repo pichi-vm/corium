@@ -44,7 +44,7 @@ pub(super) fn prepare(
     while remaining != 0 {
         let length = remaining.min(buffer.len() as u64) as usize;
         file.read_exact(&mut buffer[..length])?;
-        if buffer[..length].iter().any(|byte| *byte != 0) {
+        if !is_blank(&buffer[..length]) {
             return Err(invalid(
                 "state disk is not blank and has no valid primary GPT; refusing to format",
             ));
@@ -69,6 +69,13 @@ pub(super) fn prepare(
         .map_err(io::Error::other)?;
     disk.write().map_err(io::Error::other)?.sync_all()?;
     read(file, capacity, sector).map(|partition| (partition, true))
+}
+
+// Checking machine words avoids a branch per byte under the size-optimized
+// release profile. Every byte is still checked, including a partial last word.
+fn is_blank(bytes: &[u8]) -> bool {
+    let (words, tail) = bytes.as_chunks::<8>();
+    words.iter().all(|word| u64::from_ne_bytes(*word) == 0) && tail.iter().all(|byte| *byte == 0)
 }
 
 fn header(file: &mut File, lba: u64, sector: LogicalBlockSize) -> io::Result<Header> {
@@ -191,6 +198,21 @@ mod tests {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).unwrap();
         bytes
+    }
+
+    #[test]
+    fn blank_check_covers_unaligned_words_and_tails() {
+        for alignment in 0..8 {
+            for length in 0..129 {
+                let mut storage = vec![0; alignment + length];
+                assert!(is_blank(&storage[alignment..]));
+                for index in alignment..storage.len() {
+                    storage[index] = 0x80;
+                    assert!(!is_blank(&storage[alignment..]));
+                    storage[index] = 0;
+                }
+            }
+        }
     }
 
     #[test]
