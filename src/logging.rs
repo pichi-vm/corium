@@ -21,6 +21,16 @@ pub fn init_logging() {
     log::set_max_level(LevelFilter::Error);
 }
 
+/// Apply the configured verbosity after /proc is available.
+/// Invalid or unreadable configuration leaves the current filter unchanged.
+pub fn configure_logging() -> Result<(), String> {
+    let text = std::fs::read_to_string("/proc/bootconfig")
+        .map_err(|error| format!("read bootconfig: {error}"))?;
+    let config = crate::bootconfig::BootConfig::parse(&text)?;
+    log::set_max_level(config.log_level()?);
+    Ok(())
+}
+
 impl Log for Console {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         metadata.level() <= log::max_level()

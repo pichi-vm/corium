@@ -153,8 +153,8 @@ Corium reads the resulting flattened, quoted key/value records.
 Two optional settings control diagnostics:
 
 - `corium.log = off|error|warn|info|debug|trace` sets the maximum verbosity.
-  The default is `error`; successful boots are silent. `off` suppresses all
-  Corium records, including fatal errors.
+  The default is `error`; successful boots and shutdowns are silent.
+  `off` suppresses all Corium records, including fatal errors.
 - `corium.halt = started|modules|discovered|assembled|mounted|pivoted|state`
   syncs and powers off after the selected phase completes successfully.
   Without it, Corium executes `/sbin/init`. It does not change the log level.

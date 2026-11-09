@@ -14,7 +14,9 @@ fn main() -> std::process::ExitCode {
     }
     let command =
         if std::env::args_os().next().as_deref() == Some(std::ffi::OsStr::new("/shutdown")) {
-            log::set_max_level(log::LevelFilter::Info);
+            if let Err(error) = corium::configure_logging() {
+                log::error!(target: "corium", error:% = error; "configure shutdown logging");
+            }
             match shutdown::action(std::env::args_os().nth(1).as_deref()) {
                 Ok(command) => {
                     if let Err(error) = shutdown::unmount_old_root() {

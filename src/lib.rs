@@ -18,4 +18,4 @@ mod progress;
 mod state;
 
 pub use boot::boot;
-pub use logging::init_logging;
+pub use logging::{configure_logging, init_logging};
