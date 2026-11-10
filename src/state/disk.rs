@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: Advanced Micro Devices, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Reuse valid state partitions; initialize GPT only on wholly blank disks.
+//! Reuse valid state partitions; initialize devices without a GPT.
 
 use gpt::{disk::LogicalBlockSize, header::Header, mbr::ProtectiveMBR};
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use uuid::Uuid;
 
 pub(super) const STATE_TYPE: Uuid = uuid::uuid!("32a2f055-1a43-44b2-ab7a-483ff5f13481");
@@ -17,7 +17,7 @@ fn invalid(message: &str) -> io::Error {
 }
 
 /// Return the state extent and whether this invocation created its GPT.
-/// A failed or interrupted previous initialization is never retried by formatting.
+/// Once a GPT exists, initialization is never retried by formatting.
 pub(super) fn prepare(
     file: &mut File,
     capacity: u64,
@@ -29,35 +29,22 @@ pub(super) fn prepare(
             "state disk must be at least 4 MiB and sector-aligned",
         ));
     }
-    file.seek(SeekFrom::Start(block))?;
-    let mut signature = [0; 8];
-    file.read_exact(&mut signature)?;
-    if &signature == b"EFI PART" {
-        return read(file, capacity, sector).map(|partition| (partition, false));
-    }
-
-    // Missing GPT is not permission to destroy data. Check the entire device,
-    // including its backup metadata and any data outside the proposed partition.
-    file.rewind()?;
-    let mut remaining = capacity;
-    let mut buffer = vec![0; ALIGNMENT as usize];
-    while remaining != 0 {
-        let length = remaining.min(buffer.len() as u64) as usize;
-        file.read_exact(&mut buffer[..length])?;
-        if !is_blank(&buffer[..length]) {
-            return Err(invalid(
-                "state disk is not blank and has no valid primary GPT; refusing to format",
-            ));
+    for offset in [block, capacity - block] {
+        file.seek(SeekFrom::Start(offset))?;
+        let mut signature = [0; 8];
+        file.read_exact(&mut signature)?;
+        if &signature == b"EFI PART" {
+            return read(file, capacity, sector).map(|partition| (partition, false));
         }
-        remaining -= length as u64;
     }
 
-    // Persist a nonblank marker before any GPT/formatter writes. An interrupted
-    // initialization must fail validation on the next boot, not format again.
-    ProtectiveMBR::with_lb_size((capacity / block - 1).min(u64::from(u32::MAX)) as u32)
-        .overwrite_lba0(file)
-        .map_err(io::Error::other)?;
-    file.sync_all()?;
+    let mut mbr = vec![0; block as usize];
+    mbr[..512].copy_from_slice(
+        &ProtectiveMBR::with_lb_size((capacity / block - 1).min(u64::from(u32::MAX)) as u32)
+            .to_bytes(),
+    );
+    file.rewind()?;
+    file.write_all(&mbr)?;
     let mut disk = gpt::GptConfig::new()
         .writable(true)
         .logical_block_size(sector)
@@ -69,13 +56,6 @@ pub(super) fn prepare(
         .map_err(io::Error::other)?;
     disk.write().map_err(io::Error::other)?.sync_all()?;
     read(file, capacity, sector).map(|partition| (partition, true))
-}
-
-// Checking machine words avoids a branch per byte under the size-optimized
-// release profile. Every byte is still checked, including a partial last word.
-fn is_blank(bytes: &[u8]) -> bool {
-    let (words, tail) = bytes.as_chunks::<8>();
-    words.iter().all(|word| u64::from_ne_bytes(*word) == 0) && tail.iter().all(|byte| *byte == 0)
 }
 
 fn header(file: &mut File, lba: u64, sector: LogicalBlockSize) -> io::Result<Header> {
@@ -201,21 +181,6 @@ mod tests {
     }
 
     #[test]
-    fn blank_check_covers_unaligned_words_and_tails() {
-        for alignment in 0..8 {
-            for length in 0..129 {
-                let mut storage = vec![0; alignment + length];
-                assert!(is_blank(&storage[alignment..]));
-                for index in alignment..storage.len() {
-                    storage[index] = 0x80;
-                    assert!(!is_blank(&storage[alignment..]));
-                    storage[index] = 0;
-                }
-            }
-        }
-    }
-
-    #[test]
     fn reads_existing_state_without_writes() {
         for sector in [LogicalBlockSize::Lb512, LogicalBlockSize::Lb4096] {
             let mut file = fixture(sector);
@@ -241,7 +206,7 @@ mod tests {
                 file.seek(SeekFrom::Start(offset)).unwrap();
                 file.write_all(&[0xa5]).unwrap();
                 let before = bytes(&mut file);
-                assert!(read(&mut file, 8 * ALIGNMENT, sector).is_err());
+                assert!(prepare(&mut file, 8 * ALIGNMENT, sector).is_err());
                 assert_eq!(bytes(&mut file), before);
             }
         }
@@ -261,7 +226,7 @@ mod tests {
         disk.update_partitions(entries).unwrap();
         disk.write().unwrap();
         let before = bytes(&mut file);
-        assert!(read(&mut file, 8 * ALIGNMENT, sector).is_err());
+        assert!(prepare(&mut file, 8 * ALIGNMENT, sector).is_err());
         assert_eq!(bytes(&mut file), before);
         let mut blank = tempfile::tempfile().unwrap();
         blank.set_len(8 * ALIGNMENT).unwrap();
@@ -302,18 +267,24 @@ mod tests {
     }
 
     #[test]
-    fn unknown_data_and_interrupted_initialization_are_unchanged() {
-        for offset in [0, 1024 * 1024, 8 * ALIGNMENT - 1] {
-            let mut file = tempfile::tempfile().unwrap();
-            file.set_len(8 * ALIGNMENT).unwrap();
-            file.seek(SeekFrom::Start(offset)).unwrap();
-            file.write_all(&[0xa5]).unwrap();
-            assert!(prepare(&mut file, 8 * ALIGNMENT, LogicalBlockSize::Lb512).is_err());
-            file.rewind().unwrap();
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes).unwrap();
-            assert_eq!(bytes.iter().filter(|b| **b != 0).count(), 1);
-            assert_eq!(bytes[offset as usize], 0xa5);
+    fn initializes_non_gpt_data() {
+        for sector in [LogicalBlockSize::Lb512, LogicalBlockSize::Lb4096] {
+            for offset in [
+                0,
+                512,
+                u64::from(sector) - 1,
+                u64::from(sector) + 128,
+                ALIGNMENT,
+                8 * ALIGNMENT - 1,
+            ] {
+                let mut file = tempfile::tempfile().unwrap();
+                file.set_len(8 * ALIGNMENT).unwrap();
+                file.seek(SeekFrom::Start(offset)).unwrap();
+                file.write_all(&[0xa5]).unwrap();
+                let (_, created) = prepare(&mut file, 8 * ALIGNMENT, sector).unwrap();
+                assert!(created);
+                assert!(read(&mut file, 8 * ALIGNMENT, sector).is_ok());
+            }
         }
     }
 }

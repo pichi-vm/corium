@@ -575,11 +575,16 @@ fn initialize_state() {
     let config = format!("corium.root={}", disk.root);
     let original = support::hash(&disk.path);
     for sector in [512, 4096] {
-        let state = h.work.join(format!("blank-state-{sector}.raw"));
+        let state = h.work.join(format!("non-gpt-state-{sector}.raw"));
         fs::File::create(&state)
             .unwrap()
             .set_len(64 * 1024 * 1024)
             .unwrap();
+        let mut file = fs::OpenOptions::new().write(true).open(&state).unwrap();
+        for offset in [0, 1024 * 1024, 64 * 1024 * 1024 - 1] {
+            file.seek(SeekFrom::Start(offset)).unwrap();
+            file.write_all(&[0xa5]).unwrap();
+        }
         for (number, marker) in [(1, "NEW"), (2, "RETAINED")] {
             let name = format!("initialize-{sector}-{number}");
             let result = h.boot_with_storage(
