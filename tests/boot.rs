@@ -524,23 +524,24 @@ fn preformatted_var() {
     no_state.expect(READY);
     assert_eq!([support::hash(&first), support::hash(&second)], hashes);
     h.outcome("no-state-disk", "PASS", "immutable boot without state");
-    let unknown = h.work.join("unknown-state.raw");
-    let mut file = fs::File::create(&unknown).unwrap();
+    let invalid = h.work.join("invalid-gpt.raw");
+    let mut file = fs::File::create(&invalid).unwrap();
     file.set_len(8 * 1024 * 1024).unwrap();
-    file.write_all(b"user data").unwrap();
+    file.seek(SeekFrom::Start(512)).unwrap();
+    file.write_all(b"EFI PART").unwrap();
     drop(file);
-    let before = support::hash(&unknown);
+    let before = support::hash(&invalid);
     let result = h.boot_with_storage(
-        "unknown-state",
+        "invalid-gpt",
         &initrd,
         Some(&disk.path),
         &config,
         "",
-        &[(&unknown, 512)],
+        &[(&invalid, 512)],
     );
     result.expect("prepare persistent state:");
-    assert_eq!(support::hash(&unknown), before);
-    h.outcome("unknown-state", "PASS", "unrecognized disk unchanged");
+    assert_eq!(support::hash(&invalid), before);
+    h.outcome("invalid-gpt", "PASS", "invalid GPT unchanged");
     // A recognized GPT must not authorize replacing a damaged filesystem.
     let mut damaged = OpenOptions::new().write(true).open(&first).unwrap();
     damaged
