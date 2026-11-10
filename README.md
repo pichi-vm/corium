@@ -110,17 +110,19 @@ are ignored. Symlinks, missing sources, escaping paths, overlapping entries and
 conflicting state types are rejected. Declared paths hide existing
 state without deleting it; removing a declaration exposes that state again.
 
-Attach exactly one writable whole virtio disk, either completely blank or
+Attach exactly one writable whole virtio disk, either without a GPT or
 containing a GPT state partition of type
 `32a2f055-1a43-44b2-ab7a-483ff5f13481`. Its filesystem must match the root
 filesystem. Corium accepts 512- and 4096-byte logical sectors,
 validates both GPT copies and requires one partition aligned to 1 MiB. It
-rejects unknown or damaged storage without formatting or repairing it.
+rejects unsupported or damaged GPT storage without formatting or repairing it.
 
-For a wholly blank disk, Corium creates the state GPT and runs
+For a disk without a GPT signature in either header location, Corium creates
+the state GPT and runs
 `/usr/sbin/mkfs.<root-filesystem>` from the verified image after pivot. Include
 that formatter and its libraries in the root image. Initialization completes
-within the first boot. Interrupted initialization is not retried by formatting;
+within the first boot. Existing non-GPT data is replaced. Once a GPT exists,
+interrupted initialization is not retried by formatting;
 existing filesystem failures are fatal.
 
 The image must provide real `/tmp`, `/var`, `/home`, `/root` and `/srv` directories.
